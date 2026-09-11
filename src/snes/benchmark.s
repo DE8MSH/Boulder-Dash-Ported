@@ -48,18 +48,14 @@ bench_digit:  .res 1
 .endproc
 
 .proc snes_benchmark_nmi
-    ; Acknowledge NMI first. Once Cave 1 is complete, freeze the benchmark at
-    ; the exact value reached on the winning frame so the displayed time stays
-    ; readable instead of continuing to run in the result screen.
+    ; Acknowledge the hardware NMI first. Count PAL VBlanks only while the
+    ; first Cave 1 benchmark is still running. Once Rockford reaches the exit,
+    ; game_cave_complete becomes non-zero and the displayed result freezes.
     php
     pha
     lda RDNMI
     lda game_cave_complete
     bne @done
-
-    ; Europe/PAL SNES: one VBlank is ~20 ms. Count every hardware VBlank so
-    ; benchmark time remains real even when one game iteration spans multiple
-    ; display frames.
     clc
     lda bench_ms_lo
     adc #20
