@@ -27,8 +27,9 @@ assets: check
 		build/generated/common/cave1.inc \
 		build/generated/pce/cave1_bat.inc
 
-build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-source.py | assets
+build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-source.py scripts/fix-generated-branches.py | assets
 	$(PYTHON) scripts/prepare-game-source.py src/common/game.s build/generated/common/game-build.s
+	$(PYTHON) scripts/fix-generated-branches.py build/generated/common/game-build.s
 
 snes-obj: assets build/generated/common/game-build.s
 	@mkdir -p build/snes
