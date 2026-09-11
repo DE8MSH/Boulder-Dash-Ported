@@ -4,7 +4,7 @@
 
 .include "../common/platform.inc"
 
-.import game_cave_view
+.import game_cave_render
 
 INIDISP  = $2100
 BGMODE   = $2105
@@ -26,10 +26,36 @@ NMITIMEN = $4200
 HVBJOY   = $4212
 JOY1H    = $4219
 
+CAVE_RENDER_BYTES = 32 * 28 * 2
+
 .segment "BSS"
 pad_result: .res 1
 
 .segment "CODE"
+
+.proc snes_upload_cave
+    ; BG1 tilemap starts at VRAM word $1000. The shared render buffer already
+    ; contains complete little-endian tilemap words using pattern base $40.
+    stz VMADDL
+    lda #$10
+    sta VMADDH
+
+    rep #$10
+    .i16
+    ldx #$0000
+@copy:
+    lda game_cave_render,x
+    sta VMDATAL
+    inx
+    lda game_cave_render,x
+    sta VMDATAH
+    inx
+    cpx #CAVE_RENDER_BYTES
+    bne @copy
+    sep #$10
+    .i8
+    rts
+.endproc
 
 .proc platform_init
     sei
@@ -61,8 +87,12 @@ pad_result: .res 1
 
     lda #$80
     sta VMAIN
+
+    ; Upload graphics beginning at SNES tile $40 so SNES and PCE can consume
+    ; the same shared render words without translation.
     stz VMADDL
-    stz VMADDH
+    lda #$04
+    sta VMADDH
 
     rep #$10
     .i16
@@ -77,7 +107,7 @@ pad_result: .res 1
     cpx #bd_charset_snes_bytes
     bne @upload_tiles
 
-    ; Clear the complete 32x32 BG1 tilemap first.
+    ; Clear complete 32x32 BG1 tilemap.
     stz VMADDL
     lda #$10
     sta VMADDH
@@ -87,45 +117,23 @@ pad_result: .res 1
     stz VMDATAH
     dex
     bne @clear_map
-
-    ; game_cave_view is the exact 32x28 C64 character-cell layout for a
-    ; 16x14 logical-object viewport. The generator has already applied
-    ; TabCaveTileCharNo and the original 2x2 layout:
-    ;   base, base+1 / base+$10, base+$11.
-    stz VMADDL
-    lda #$10
-    sta VMADDH
-    ldx #$0000
-@write_cave:
-    lda game_cave_view,x
-    sta VMDATAL
-    stz VMDATAH
-    inx
-    cpx #896            ; 32 * 28 character cells
-    bne @write_cave
-
     sep #$10
     .i8
 
-    ; Cave 1 C64 colors are $08/$0b/$09 (orange/dark gray/brown).
-    ; Converted multicolor pixels use palette roles 0..3:
-    ;   0 background black, 1 orange, 2 dark gray, 3 brown.
-    ; RGB values are close SNES approximations, not yet a calibrated C64 LUT.
+    jsr snes_upload_cave
+
+    ; Temporary Cave 1 palette. Exact C64 palette calibration is deferred.
     stz CGADD
-    ; color 0: black, BGR555 $0000
     stz CGDATA
     stz CGDATA
-    ; color 1: orange, BGR555 $1551
     lda #$51
     sta CGDATA
     lda #$15
     sta CGDATA
-    ; color 2: dark gray, BGR555 $294a
     lda #$4a
     sta CGDATA
     lda #$29
     sta CGDATA
-    ; color 3: brown, BGR555 $014d
     lda #$4d
     sta CGDATA
     lda #$01
@@ -216,6 +224,7 @@ pad_result: .res 1
 .endproc
 
 .proc platform_video_begin
+    jsr snes_upload_cave
     rts
 .endproc
 
