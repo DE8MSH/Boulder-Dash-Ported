@@ -1,12 +1,16 @@
 ; Shared platform ABI for Boulder Dash I console ports.
 ; Keep this file hardware-neutral.
+;
+; .global lets a module provide one of these symbols or consume it as an
+; external. This is important because both platform backends define the API,
+; while src/common/game.s calls it.
 
-.export platform_init
-.export platform_wait_frame
-.export platform_read_pad
-.export platform_video_begin
-.export platform_video_end
-.export platform_audio_tick
+.global platform_init
+.global platform_wait_frame
+.global platform_read_pad
+.global platform_video_begin
+.global platform_video_end
+.global platform_audio_tick
 
 ; Common logical input bits returned by platform_read_pad in A.
 PAD_LEFT   = %00000001
