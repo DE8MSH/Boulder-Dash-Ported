@@ -227,7 +227,16 @@ pce_raw_buttons: .res 1
 .endproc
 
 .proc platform_video_begin
+    ; Runtime BAT changes are much larger than one VBlank. Keep BG disabled
+    ; for this one dirty upload so CPU VRAM writes are deterministic, then
+    ; restore the normal BG+VBlank control value.
+    st0 #VDC_CR
+    st1 #$08
+    st2 #$00
     jsr pce_upload_cave
+    st0 #VDC_CR
+    st1 #$88
+    st2 #$00
     rts
 .endproc
 
