@@ -1,13 +1,15 @@
 CA65 ?= ca65
 LD65 ?= ld65
+PYTHON ?= python3
 
-.PHONY: all check snes-obj pce-obj snes-rom pce-rom clean
+.PHONY: all check snes-obj pce-obj snes-rom pce-rom verify clean
 
 all: snes-rom pce-rom
 
 check:
 	@command -v $(CA65) >/dev/null || (echo "error: ca65 not found; install cc65" && exit 1)
 	@command -v $(LD65) >/dev/null || (echo "error: ld65 not found; install cc65" && exit 1)
+	@command -v $(PYTHON) >/dev/null || (echo "error: python3 not found" && exit 1)
 	@echo "ca65: $$($(CA65) --version 2>&1 | head -n 1)"
 	@echo "ld65: $$($(LD65) --version 2>&1 | head -n 1)"
 
@@ -36,6 +38,9 @@ pce-rom: pce-obj
 		-o build/pce/boulder-dash.pce \
 		build/pce/startup.o build/pce/game.o build/pce/platform.o
 	@echo "built build/pce/boulder-dash.pce"
+
+verify: all
+	$(PYTHON) scripts/check-roms.py
 
 clean:
 	rm -rf build
