@@ -42,9 +42,10 @@ assets: check
 		build/generated/pce/intro-bank6.inc \
 		build/generated/pce/intro-bank7.inc
 
-build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-source.py scripts/add-butterfly-support.py scripts/fix-generated-branches.py | assets
+build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-source.py scripts/add-butterfly-support.py scripts/enable-autoplayer.py scripts/fix-generated-branches.py | assets
 	$(PYTHON) scripts/prepare-game-source.py src/common/game.s build/generated/common/game-build.s
 	$(PYTHON) scripts/add-butterfly-support.py build/generated/common/game-build.s
+	$(PYTHON) scripts/enable-autoplayer.py build/generated/common/game-build.s
 	$(PYTHON) scripts/fix-generated-branches.py build/generated/common/game-build.s
 
 build/generated/snes/platform-build.s: src/snes/platform.s scripts/prepare-snes-platform.py scripts/fix-generated-platform-video.py scripts/fix-generated-cave-palettes.py | assets
@@ -60,6 +61,7 @@ build/generated/pce/platform-build.s: src/pce/platform.s scripts/prepare-pce-pla
 snes-obj: assets build/generated/common/game-build.s build/generated/snes/platform-build.s
 	@mkdir -p build/snes
 	cd src/common && $(CA65) --cpu 65816 ../../build/generated/common/game-build.s -I . -o ../../build/snes/game.o
+	cd src/common && $(CA65) --cpu 65816 game_autoplay.s -o ../../build/snes/game_autoplay.o
 	cd src/common && $(CA65) --cpu 65816 game_caves_runtime.s -o ../../build/snes/game_caves_runtime.o
 	cd src/common && $(CA65) --cpu 65816 game_flow.s -o ../../build/snes/game_flow.o
 	cd src/common && $(CA65) --cpu 65816 game_progress.s -o ../../build/snes/game_progress.o
@@ -71,6 +73,7 @@ snes-obj: assets build/generated/common/game-build.s build/generated/snes/platfo
 pce-obj: assets build/generated/common/game-build.s build/generated/pce/platform-build.s
 	@mkdir -p build/pce
 	cd src/common && $(CA65) --cpu huc6280 ../../build/generated/common/game-build.s -I . -o ../../build/pce/game.o
+	cd src/common && $(CA65) --cpu huc6280 game_autoplay.s -o ../../build/pce/game_autoplay.o
 	cd src/common && $(CA65) --cpu huc6280 game_caves_runtime.s -o ../../build/pce/game_caves_runtime.o
 	cd src/common && $(CA65) --cpu huc6280 game_flow.s -o ../../build/pce/game_flow.o
 	cd src/common && $(CA65) --cpu huc6280 game_progress.s -o ../../build/pce/game_progress.o
@@ -82,13 +85,13 @@ pce-obj: assets build/generated/common/game-build.s build/generated/pce/platform
 snes-rom: snes-obj
 	$(LD65) -C cfg/snes-lorom.cfg -m build/snes/boulder-dash.map \
 		-o build/snes/boulder-dash.sfc \
-		build/snes/startup.o build/snes/game.o build/snes/game_caves_runtime.o build/snes/game_flow.o build/snes/game_progress.o build/snes/cave_preview.o build/snes/platform.o
+		build/snes/startup.o build/snes/game.o build/snes/game_autoplay.o build/snes/game_caves_runtime.o build/snes/game_flow.o build/snes/game_progress.o build/snes/cave_preview.o build/snes/platform.o
 	@echo "built build/snes/boulder-dash.sfc"
 
 pce-rom: pce-obj
 	$(LD65) -C cfg/pce-hucard.cfg -m build/pce/boulder-dash.map \
 		-o build/pce/boulder-dash.pce \
-		build/pce/startup.o build/pce/game.o build/pce/game_caves_runtime.o build/pce/game_flow.o build/pce/game_progress.o build/pce/cave_preview.o build/pce/platform.o
+		build/pce/startup.o build/pce/game.o build/pce/game_autoplay.o build/pce/game_caves_runtime.o build/pce/game_flow.o build/pce/game_progress.o build/pce/cave_preview.o build/pce/platform.o
 	@echo "built build/pce/boulder-dash.pce"
 
 selfplay: check
