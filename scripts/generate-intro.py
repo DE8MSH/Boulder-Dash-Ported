@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Generate console intro assets directly from the C64 title data.
+"""Generate the console title screen directly from the original C64 data.
 
-The title source supplies the 40x25 screen codes and B1_ChrS.asm supplies the
-matching C64 multicolor character set. Variant files may either inherit an
-unchanged tail or request a completely filled 40x25 screen, for example:
+B1_Title_therza.asm replaces only the requested prefix of the 40x25 C64
+screen matrix and inherits the rest from B1_Title.asm. B1_ChrS.asm supplies
+the original title charset.
 
-    ; @inherit-title-tail B1_Title.asm 40
-    ; @fill-title $20
-
-The C64 picture is reconstructed at 320x200 and horizontally sampled to the
-consoles' 256-pixel playfield. No artwork is redrawn by hand.
+The C64 title background animation is reproduced from BoulderDashI.asm:
+character $0B is copied to character $00, character $00 is rotated upward,
+and characters $09/$0A are rebuilt as $06/$07 OR $00. Eight animation
+phases are rendered. The 320x200 C64 picture is horizontally sampled to the
+256x200 console playfield, then tiles are deduplicated across all phases.
+The consoles keep the resulting graphics resident in VRAM and animate the
+intro by replacing only the 32x32 tile map/BAT every fourth PAL C64 frame.
 """
 
 from __future__ import annotations
@@ -33,6 +35,9 @@ MAP_H = 32
 SCREEN_Y = 1
 PATTERN_BASE = 0x40
 PCE_BANK_BYTES = 0x2000
+PCE_TILE_BANKS = 4
+INTRO_PHASES = 8
+MAP_BYTES = MAP_W * MAP_H * 2
 
 
 def read_raw_title(path: Path) -> list[int]:
@@ -101,7 +106,24 @@ def read_charset(path: Path) -> dict[int, list[int]]:
                     rows = []
     if not chars:
         raise SystemExit(f"{path}: no Chr_XX characters found")
+    for needed in (0x00, 0x06, 0x07, 0x09, 0x0A, 0x0B):
+        if needed not in chars:
+            raise SystemExit(f"{path}: missing Chr_{needed:02x} required by C64 intro animation")
     return chars
+
+
+def animated_charset(chars: dict[int, list[int]], phase: int) -> dict[int, list[int]]:
+    """Reproduce IRQ_OptsAnimCharSteel + IRQ_OptsAnimChar for one phase."""
+    out = {index: rows.copy() for index, rows in chars.items()}
+
+    # InitVicGameStatus copies C64 character $0B ($2058) over character $00.
+    seed = chars[0x0B]
+    phase &= 7
+    moving = seed[phase:] + seed[:phase]
+    out[0x00] = moving
+    out[0x09] = [chars[0x06][i] | moving[i] for i in range(8)]
+    out[0x0A] = [chars[0x07][i] | moving[i] for i in range(8)]
+    return out
 
 
 def char_row_pixels(value: int) -> list[int]:
@@ -130,49 +152,77 @@ def scale_horizontal(src: list[list[int]]) -> list[list[int]]:
     return [[row[(x * 5) // 4] for x in range(DST_W)] for row in src]
 
 
-def make_tiles(image: list[list[int]]) -> list[list[list[int]]]:
-    blank = [[0] * 8 for _ in range(8)]
-    tiles: list[list[list[int]]] = [blank]
+def image_tiles(image: list[list[int]]) -> list[tuple[int, ...]]:
+    result: list[tuple[int, ...]] = []
     for ty in range(25):
         for tx in range(32):
-            tile = [image[ty * 8 + y][tx * 8 : tx * 8 + 8] for y in range(8)]
-            tiles.append(tile)
-    assert len(tiles) == 801
-    return tiles
+            flat: list[int] = []
+            for y in range(8):
+                flat.extend(image[ty * 8 + y][tx * 8 : tx * 8 + 8])
+            result.append(tuple(flat))
+    return result
 
 
-def encode_planes01(tile: list[list[int]]) -> bytes:
-    out = bytearray()
-    for row in tile:
+def deduplicate_phases(images: list[list[list[int]]]) -> tuple[list[tuple[int, ...]], list[list[int]]]:
+    blank = tuple([0] * 64)
+    tiles: list[tuple[int, ...]] = [blank]
+    tile_ids: dict[tuple[int, ...], int] = {blank: 0}
+    phase_maps: list[list[int]] = []
+
+    for image in images:
+        ids: list[int] = []
+        for tile in image_tiles(image):
+            tile_id = tile_ids.get(tile)
+            if tile_id is None:
+                tile_id = len(tiles)
+                tile_ids[tile] = tile_id
+                tiles.append(tile)
+            ids.append(tile_id)
+        phase_maps.append(ids)
+
+    if PATTERN_BASE + len(tiles) - 1 > 0x3FF:
+        raise SystemExit(
+            f"intro needs {len(tiles)} deduplicated tiles; SNES BG1 limit with base ${PATTERN_BASE:02X} is 960"
+        )
+    if len(tiles) * 32 > PCE_TILE_BANKS * PCE_BANK_BYTES:
+        raise SystemExit(f"intro tile data ({len(tiles) * 32} bytes) exceeds four PCE tile banks")
+    return tiles, phase_maps
+
+
+def encode_4bpp(tile: tuple[int, ...]) -> bytes:
+    plane01 = bytearray()
+    plane23 = bytearray()
+    for y in range(8):
         p0 = 0
         p1 = 0
-        for x, value in enumerate(row):
+        for x in range(8):
+            value = tile[y * 8 + x]
             bit = 7 - x
             if value & 1:
                 p0 |= 1 << bit
             if value & 2:
                 p1 |= 1 << bit
-        out.extend((p0, p1))
-    return bytes(out)
+        plane01.extend((p0, p1))
+        plane23.extend((0, 0))
+    return bytes(plane01 + plane23)
 
 
-def encode_4bpp(tile: list[list[int]]) -> bytes:
-    return encode_planes01(tile) + bytes(16)
-
-
-def make_map() -> bytes:
+def make_map(tile_ids: list[int]) -> bytes:
+    if len(tile_ids) != 32 * 25:
+        raise ValueError("one intro phase must contain 32x25 visible tiles")
     words: list[int] = []
     for row in range(MAP_H):
         for col in range(MAP_W):
             if SCREEN_Y <= row < SCREEN_Y + 25:
                 n = (row - SCREEN_Y) * 32 + col
-                tile = PATTERN_BASE + 1 + n
+                tile = PATTERN_BASE + tile_ids[n]
             else:
                 tile = PATTERN_BASE
             words.append(tile)
     out = bytearray()
     for word in words:
         out.extend((word & 0xFF, (word >> 8) & 0xFF))
+    assert len(out) == MAP_BYTES
     return bytes(out)
 
 
@@ -182,40 +232,40 @@ def emit_bytes(lines: list[str], data: bytes) -> None:
         lines.append("    .byte " + ", ".join(f"${b:02x}" for b in chunk))
 
 
-def write_snes(path: Path, tiles: list[list[list[int]]], tilemap: bytes) -> None:
+def write_snes(path: Path, tiles: list[tuple[int, ...]], maps: list[bytes]) -> None:
     tile_data = b"".join(encode_4bpp(tile) for tile in tiles)
-    lines = ["; generated by scripts/generate-intro.py", "bd_intro_tiles_snes:"]
+    lines = [
+        "; generated by scripts/generate-intro.py",
+        '.segment "INTRO_TILES"',
+        "bd_intro_tiles_snes:",
+    ]
     emit_bytes(lines, tile_data)
     lines += [
         "bd_intro_tiles_snes_end:",
         f"bd_intro_tiles_snes_bytes = {len(tile_data)}",
+        f"bd_intro_tiles_snes_count = {len(tiles)}",
         "",
-        "bd_intro_map_snes:",
+        '.segment "INTRO_MAPS"',
     ]
-    emit_bytes(lines, tilemap)
+    for phase, tilemap in enumerate(maps):
+        lines.append(f"bd_intro_map_snes_{phase}:")
+        emit_bytes(lines, tilemap)
+        lines.append("")
     lines += [
-        "bd_intro_map_snes_end:",
-        f"bd_intro_map_snes_bytes = {len(tilemap)}",
+        "bd_intro_map_snes = bd_intro_map_snes_0",
+        f"bd_intro_map_snes_bytes = {MAP_BYTES}",
         "",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def write_pce(paths: list[Path], tiles: list[list[list[int]]], tilemap: bytes) -> None:
+def write_pce(tile_paths: list[Path], map_paths: list[Path], tiles: list[tuple[int, ...]], maps: list[bytes]) -> None:
     native = b"".join(encode_4bpp(tile) for tile in tiles)
-    chunks = [
-        native[0x0000:0x2000],
-        native[0x2000:0x4000],
-        native[0x4000:0x6000],
-        native[0x6000:],
-    ]
-    if any(len(chunk) != PCE_BANK_BYTES for chunk in chunks[:3]):
-        raise SystemExit("first three PCE intro banks must each contain 8 KiB")
-    if len(chunks[3]) + len(tilemap) > PCE_BANK_BYTES:
-        raise SystemExit("final PCE intro bank does not fit tiles plus BAT")
+    native = native.ljust(PCE_TILE_BANKS * PCE_BANK_BYTES, b"\x00")
 
-    for i, (path, chunk) in enumerate(zip(paths, chunks)):
+    for i, path in enumerate(tile_paths):
+        chunk = native[i * PCE_BANK_BYTES : (i + 1) * PCE_BANK_BYTES]
         lines = [
             "; generated by scripts/generate-intro.py",
             f"bd_intro_tiles_pce_part{i}:",
@@ -226,14 +276,19 @@ def write_pce(paths: list[Path], tiles: list[list[list[int]]], tilemap: bytes) -
             f"bd_intro_tiles_pce_part{i}_bytes = {len(chunk)}",
             "",
         ]
-        if i == 3:
-            lines.append("bd_intro_map_pce:")
-            emit_bytes(lines, tilemap)
-            lines += [
-                "bd_intro_map_pce_end:",
-                f"bd_intro_map_pce_bytes = {len(tilemap)}",
-                "",
-            ]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(lines), encoding="utf-8")
+
+    for bank_index, path in enumerate(map_paths):
+        first_phase = bank_index * 4
+        lines = ["; generated by scripts/generate-intro.py"]
+        for local in range(4):
+            phase = first_phase + local
+            lines.append(f"bd_intro_map_pce_{phase}:")
+            emit_bytes(lines, maps[phase])
+            lines.append("")
+        lines.append(f"bd_intro_map_pce_bytes = {MAP_BYTES}")
+        lines.append("")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -247,21 +302,28 @@ def main() -> None:
     ap.add_argument("pce_bank3_out", type=Path)
     ap.add_argument("pce_bank4_out", type=Path)
     ap.add_argument("pce_bank5_out", type=Path)
+    ap.add_argument("pce_bank6_out", type=Path)
+    ap.add_argument("pce_bank7_out", type=Path)
     args = ap.parse_args()
 
     screen = read_title(args.title)
     chars = read_charset(args.charset)
-    source = render_source(screen, chars)
-    scaled = scale_horizontal(source)
-    tiles = make_tiles(scaled)
-    tilemap = make_map()
-    write_snes(args.snes_out, tiles, tilemap)
+    images = [
+        scale_horizontal(render_source(screen, animated_charset(chars, phase)))
+        for phase in range(INTRO_PHASES)
+    ]
+    tiles, phase_tile_ids = deduplicate_phases(images)
+    maps = [make_map(ids) for ids in phase_tile_ids]
+
+    write_snes(args.snes_out, tiles, maps)
     write_pce(
         [args.pce_bank2_out, args.pce_bank3_out, args.pce_bank4_out, args.pce_bank5_out],
+        [args.pce_bank6_out, args.pce_bank7_out],
         tiles,
-        tilemap,
+        maps,
     )
-    print(f"generated intro from {args.title}")
+
+    print(f"generated animated intro from {args.title}: {len(tiles)} unique tiles, {INTRO_PHASES} phases")
     print(f"SNES: {args.snes_out}")
     print(
         "PCE : "
@@ -272,6 +334,8 @@ def main() -> None:
                 args.pce_bank3_out,
                 args.pce_bank4_out,
                 args.pce_bank5_out,
+                args.pce_bank6_out,
+                args.pce_bank7_out,
             ]
         )
     )
