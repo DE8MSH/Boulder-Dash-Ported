@@ -38,11 +38,9 @@ CAVE_RENDER_BYTES = 32 * 28 * 2
 pce_zp_src: .res 2
 
 .segment "BSS"
-pad_result:       .res 1
-pce_raw_dpad:     .res 1
-pce_raw_buttons:  .res 1
-pce_repeat_dir:   .res 1
-pce_repeat_count: .res 1
+pad_result:      .res 1
+pce_raw_dpad:    .res 1
+pce_raw_buttons: .res 1
 
 pce_last_player_x: .res 1
 pce_last_player_y: .res 1
@@ -69,8 +67,7 @@ pce_dirty_buf:     .res 4
 .endproc
 
 ; Upload one logical 16x16 cave object (2x2 BAT cells) from the shared
-; 32x28 render buffer. This is the small-update path that previously removed
-; the visible full-screen flicker during ordinary movement.
+; 32x28 render buffer. Ordinary movement uses only these small writes.
 .proc pce_upload_object
     lda pce_obj_x
     sec
@@ -203,8 +200,6 @@ pce_dirty_buf:     .res 4
     sei
     csh
 
-    stz pce_repeat_dir
-    stz pce_repeat_count
     stz VCE_CTRL
 
     st0 #VDC_CR
@@ -314,8 +309,6 @@ pce_dirty_buf:     .res 4
 
 .proc platform_wait_frame
     ; Bit 5 is a latched VBlank event flag and is cleared by reading status.
-    ; Poll until a new VBlank event arrives; do not try to treat it as a
-    ; continuous in-VBlank level.
 @wait_vblank:
     lda VDC_STATUS
     and #$20
@@ -405,20 +398,20 @@ pce_dirty_buf:     .res 4
     sta pad_result
 :
 
-    ; Return the physical pad state exactly as read. The common core converts
-    ; it to newly-pressed edges, so one press moves exactly one logical cell.
+    ; One press is one logical movement; the common core performs edge detect.
     lda pad_result
     rts
 .endproc
 
 .proc platform_video_begin
-    ; Ordinary movement updates only Rockford's old/new logical cells.
+    ; If the viewport itself did not move, only Rockford's old/new objects
+    ; changed. Keep the fast, flicker-free 2x2 BAT updates for that case.
     lda game_view_x
     cmp pce_last_view_x
-    bne @full
+    bne @scroll_refresh
     lda game_view_y
     cmp pce_last_view_y
-    bne @full
+    bne @scroll_refresh
 
     lda pce_last_player_x
     sta pce_obj_x
@@ -433,9 +426,20 @@ pce_dirty_buf:     .res 4
     jsr pce_upload_object
     bra @remember
 
-@full:
-    ; Temporary fallback when the viewport itself scrolls.
+@scroll_refresh:
+    ; A complete viewport rewrite is required only when the camera moves.
+    ; Disable BG for this transfer so the VDC is not fetching BAT data while
+    ; TIA writes the new 32x28 map. This is the same safe path used at startup
+    ; and avoids the runtime scroll freeze seen with BG left enabled.
+    st0 #VDC_CR
+    st1 #$08
+    st2 #$00
+
     jsr pce_upload_cave
+
+    st0 #VDC_CR
+    st1 #$88
+    st2 #$00
 
 @remember:
     lda game_player_x
