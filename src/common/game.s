@@ -8,6 +8,7 @@
 .export game_pad_previous
 .export game_pad_pressed
 .export game_video_dirty
+.export game_video_full_dirty
 .export game_cave_state
 .export game_cave_render
 .export game_player_x
@@ -26,6 +27,19 @@ RENDER_CHAR_W = 32
 RENDER_CHAR_H = 28
 RENDER_BYTES = RENDER_CHAR_W * RENDER_CHAR_H * 2
 PATTERN_BASE = $40
+PHYSICS_DIV = 6
+
+T_EMPTY          = $00
+T_BRICK          = $02
+T_BOULDER_FIXED  = $10
+T_BOULDER_FIXED_ = $11
+T_BOULDER_FALL   = $12
+T_BOULDER_FALL_  = $13
+T_DIAMOND_FIXED  = $14
+T_DIAMOND_FIXED_ = $15
+T_DIAMOND_FALL   = $16
+T_DIAMOND_FALL_  = $17
+T_ROCKFORD       = $38
 
 .segment "ZEROPAGE"
 game_zp_src:  .res 2
@@ -33,10 +47,11 @@ game_zp_dst:  .res 2
 game_zp_dst2: .res 2
 
 .segment "BSS"
-game_pad_current:  .res 1
-game_pad_previous: .res 1
-game_pad_pressed:  .res 1
-game_video_dirty:  .res 1
+game_pad_current:     .res 1
+game_pad_previous:    .res 1
+game_pad_pressed:     .res 1
+game_video_dirty:     .res 1
+game_video_full_dirty:.res 1
 
 game_player_x: .res 1
 game_player_y: .res 1
@@ -51,14 +66,17 @@ game_render_row:  .res 1
 game_render_col:  .res 1
 game_render_base: .res 1
 
+game_phys_counter:   .res 1
+game_phys_x:         .res 1
+game_phys_y:         .res 1
+game_phys_fix_tile:  .res 1
+game_phys_fall_tile: .res 1
+game_phys_new_tile:  .res 1
+
 game_cave_state:  .res CAVE_BYTES
-; Shared 16-bit tilemap words. Both console backends upload their graphics at
-; tile index $40, so the same words can be copied directly to SNES BG1 or the
-; HuC6270 BAT.
 game_cave_render: .res RENDER_BYTES
 
 .segment "RODATA"
-; Original Boulder Dash I TabCaveTileCharNo mapping.
 game_tile_char_map:
     .byte $60,$46,$4e,$22,$2e,$62,$2e,$4a
     .byte $64,$64,$64,$64,$64,$64,$64,$64
@@ -80,8 +98,6 @@ game_tile_char_map:
     sta game_zp_dst
     lda #>game_cave_state
     sta game_zp_dst+1
-
-    ; 880 bytes = 3 complete pages + 112 bytes.
     ldx #3
 @page:
     ldy #0
@@ -94,7 +110,6 @@ game_tile_char_map:
     inc game_zp_dst+1
     dex
     bne @page
-
     ldy #0
 @tail:
     lda (game_zp_src),y
@@ -105,13 +120,11 @@ game_tile_char_map:
     rts
 .endproc
 
-; Build game_zp_src = &game_cave_state[game_point_y][game_point_x].
 .proc game_get_point_ptr
     lda #<game_cave_state
     sta game_zp_src
     lda #>game_cave_state
     sta game_zp_src+1
-
     ldx game_point_y
     beq @rows_done
 @add_row:
@@ -124,7 +137,6 @@ game_tile_char_map:
     sta game_zp_src+1
     dex
     bne @add_row
-
 @rows_done:
     clc
     lda game_zp_src
@@ -136,8 +148,23 @@ game_tile_char_map:
     rts
 .endproc
 
+.proc game_get_point
+    jsr game_get_point_ptr
+    ldy #0
+    lda (game_zp_src),y
+    rts
+.endproc
+
+.proc game_set_point
+    sta game_phys_new_tile
+    jsr game_get_point_ptr
+    ldy #0
+    lda game_phys_new_tile
+    sta (game_zp_src),y
+    rts
+.endproc
+
 .proc game_update_view
-    ; Keep Rockford roughly centred while clamping to the 40x22 cave bounds.
     lda game_player_x
     cmp #8
     bcc @x_zero
@@ -151,7 +178,6 @@ game_tile_char_map:
     bra @y_part
 @x_zero:
     stz game_view_x
-
 @y_part:
     lda game_player_y
     cmp #7
@@ -169,26 +195,20 @@ game_tile_char_map:
     rts
 .endproc
 
-; Expand the current 16x14 logical viewport to the original 2x2 C64 character
-; layout. Each output cell is a 16-bit tilemap word using shared pattern base
-; $40, which matches both platform VRAM layouts.
 .proc game_render_cave
     lda game_view_x
     sta game_point_x
     lda game_view_y
     sta game_point_y
     jsr game_get_point_ptr
-
     lda #<game_cave_render
     sta game_zp_dst
     lda #>game_cave_render
     sta game_zp_dst+1
-
     lda #<(game_cave_render + 64)
     sta game_zp_dst2
     lda #>(game_cave_render + 64)
     sta game_zp_dst2+1
-
     stz game_render_row
 @row:
     stz game_render_col
@@ -200,12 +220,10 @@ game_tile_char_map:
     clc
     adc #PATTERN_BASE
     sta game_render_base
-
     lda game_render_col
     asl a
     asl a
     tay
-
     lda game_render_base
     sta (game_zp_dst),y
     iny
@@ -219,7 +237,6 @@ game_tile_char_map:
     iny
     lda #0
     sta (game_zp_dst),y
-
     lda game_render_col
     asl a
     asl a
@@ -239,12 +256,10 @@ game_tile_char_map:
     iny
     lda #0
     sta (game_zp_dst2),y
-
     inc game_render_col
     lda game_render_col
     cmp #VIEW_OBJ_W
     bne @col
-
     clc
     lda game_zp_src
     adc #CAVE_COLS
@@ -252,7 +267,6 @@ game_tile_char_map:
     lda game_zp_src+1
     adc #0
     sta game_zp_src+1
-
     clc
     lda game_zp_dst
     adc #128
@@ -260,7 +274,6 @@ game_tile_char_map:
     lda game_zp_dst+1
     adc #0
     sta game_zp_dst+1
-
     clc
     lda game_zp_dst2
     adc #128
@@ -268,7 +281,6 @@ game_tile_char_map:
     lda game_zp_dst2+1
     adc #0
     sta game_zp_dst2+1
-
     inc game_render_row
     lda game_render_row
     cmp #VIEW_OBJ_H
@@ -278,47 +290,325 @@ game_tile_char_map:
     rts
 .endproc
 
-.proc game_try_move
-    ; Only empty, soil and diamonds are passable in this first gameplay slice.
+; Convert the original per-scan marker variants back to active states before
+; starting the next physics scan. Newly moved objects use the marker variants
+; so they cannot move twice in one top-to-bottom pass.
+.proc game_physics_normalize
+    lda #<game_cave_state
+    sta game_zp_src
+    lda #>game_cave_state
+    sta game_zp_src+1
+    ldx #3
+@page:
+    ldy #0
+@byte:
+    lda (game_zp_src),y
+    cmp #T_BOULDER_FIXED_
+    bne :+
+    lda #T_BOULDER_FIXED
+    bra @store
+:
+    cmp #T_BOULDER_FALL_
+    bne :+
+    lda #T_BOULDER_FALL
+    bra @store
+:
+    cmp #T_DIAMOND_FIXED_
+    bne :+
+    lda #T_DIAMOND_FIXED
+    bra @store
+:
+    cmp #T_DIAMOND_FALL_
+    bne @next
+    lda #T_DIAMOND_FALL
+@store:
+    sta (game_zp_src),y
+@next:
+    iny
+    bne @byte
+    inc game_zp_src+1
+    dex
+    bne @page
+    ldy #0
+@tail:
+    lda (game_zp_src),y
+    cmp #T_BOULDER_FIXED_
+    bne :+
+    lda #T_BOULDER_FIXED
+    bra @tail_store
+:
+    cmp #T_BOULDER_FALL_
+    bne :+
+    lda #T_BOULDER_FALL
+    bra @tail_store
+:
+    cmp #T_DIAMOND_FIXED_
+    bne :+
+    lda #T_DIAMOND_FIXED
+    bra @tail_store
+:
+    cmp #T_DIAMOND_FALL_
+    bne @tail_next
+    lda #T_DIAMOND_FALL
+@tail_store:
+    sta (game_zp_src),y
+@tail_next:
+    iny
+    cpy #112
+    bne @tail
+    rts
+.endproc
+
+.proc game_physics_mark_dirty
+    lda #1
+    sta game_video_dirty
+    sta game_video_full_dirty
+    rts
+.endproc
+
+; A tile is rounded for falling/rolling purposes exactly like the original
+; DynCheckObstacle: fixed boulder, fixed diamond, or brick wall.
+.proc game_physics_is_rounded
+    cmp #T_BOULDER_FIXED
+    beq @yes
+    cmp #T_DIAMOND_FIXED
+    beq @yes
+    cmp #T_BRICK
+    beq @yes
+    clc
+    rts
+@yes:
+    sec
+    rts
+.endproc
+
+.proc game_physics_move_to_target
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    lda #T_EMPTY
+    jsr game_set_point
     lda game_target_x
     sta game_point_x
     lda game_target_y
     sta game_point_y
-    jsr game_get_point_ptr
-    ldy #0
-    lda (game_zp_src),y
-    cmp #$00
+    lda game_phys_fall_tile
+    jsr game_set_point
+    jsr game_physics_mark_dirty
+    rts
+.endproc
+
+; Try to roll left then right from a rounded support. Carry set if moved.
+.proc game_physics_try_roll
+    lda game_phys_x
+    cmp #1
+    beq @right
+    dec a
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    jsr game_get_point
+    bne @right
+    lda game_phys_x
+    dec a
+    sta game_point_x
+    lda game_phys_y
+    inc a
+    sta game_point_y
+    jsr game_get_point
+    bne @right
+    lda game_phys_x
+    dec a
+    sta game_target_x
+    lda game_phys_y
+    inc a
+    sta game_target_y
+    jsr game_physics_move_to_target
+    sec
+    rts
+@right:
+    lda game_phys_x
+    cmp #38
+    beq @no
+    inc a
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    jsr game_get_point
+    bne @no
+    lda game_phys_x
+    inc a
+    sta game_point_x
+    lda game_phys_y
+    inc a
+    sta game_point_y
+    jsr game_get_point
+    bne @no
+    lda game_phys_x
+    inc a
+    sta game_target_x
+    lda game_phys_y
+    inc a
+    sta game_target_y
+    jsr game_physics_move_to_target
+    sec
+    rts
+@no:
+    clc
+    rts
+.endproc
+
+.proc game_physics_fixed
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    inc a
+    sta game_point_y
+    jsr game_get_point
+    beq @fall
+    jsr game_physics_is_rounded
+    bcc @done
+    jsr game_physics_try_roll
+    rts
+@fall:
+    lda game_phys_x
+    sta game_target_x
+    lda game_phys_y
+    inc a
+    sta game_target_y
+    jsr game_physics_move_to_target
+@done:
+    rts
+.endproc
+
+.proc game_physics_falling
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    inc a
+    sta game_point_y
+    jsr game_get_point
+    beq @fall
+    jsr game_physics_is_rounded
+    bcc @rest
+    jsr game_physics_try_roll
+    bcs @done
+@rest:
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    lda game_phys_fix_tile
+    jsr game_set_point
+    jsr game_physics_mark_dirty
+    bra @done
+@fall:
+    lda game_phys_x
+    sta game_target_x
+    lda game_phys_y
+    inc a
+    sta game_target_y
+    jsr game_physics_move_to_target
+@done:
+    rts
+.endproc
+
+.proc game_physics_step
+    inc game_phys_counter
+    lda game_phys_counter
+    cmp #PHYSICS_DIV
+    bcc @done
+    stz game_phys_counter
+    jsr game_physics_normalize
+    lda #1
+    sta game_phys_y
+@row:
+    lda #1
+    sta game_phys_x
+@col:
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    jsr game_get_point
+    cmp #T_BOULDER_FIXED
+    bne @bfall
+    lda #T_BOULDER_FIXED
+    sta game_phys_fix_tile
+    lda #T_BOULDER_FALL_
+    sta game_phys_fall_tile
+    jsr game_physics_fixed
+    bra @next
+@bfall:
+    cmp #T_BOULDER_FALL
+    bne @dfix
+    lda #T_BOULDER_FIXED_
+    sta game_phys_fix_tile
+    lda #T_BOULDER_FALL_
+    sta game_phys_fall_tile
+    jsr game_physics_falling
+    bra @next
+@dfix:
+    cmp #T_DIAMOND_FIXED
+    bne @dfall
+    lda #T_DIAMOND_FIXED
+    sta game_phys_fix_tile
+    lda #T_DIAMOND_FALL_
+    sta game_phys_fall_tile
+    jsr game_physics_fixed
+    bra @next
+@dfall:
+    cmp #T_DIAMOND_FALL
+    bne @next
+    lda #T_DIAMOND_FIXED_
+    sta game_phys_fix_tile
+    lda #T_DIAMOND_FALL_
+    sta game_phys_fall_tile
+    jsr game_physics_falling
+@next:
+    inc game_phys_x
+    lda game_phys_x
+    cmp #39
+    bne @col
+    inc game_phys_y
+    lda game_phys_y
+    cmp #21
+    bne @row
+@done:
+    rts
+.endproc
+
+.proc game_try_move
+    lda game_target_x
+    sta game_point_x
+    lda game_target_y
+    sta game_point_y
+    jsr game_get_point
+    cmp #T_EMPTY
     beq @allowed
     cmp #$01
     beq @allowed
-    cmp #$14
+    cmp #T_DIAMOND_FIXED
     bne @blocked
-
 @allowed:
     lda game_player_x
     sta game_point_x
     lda game_player_y
     sta game_point_y
-    jsr game_get_point_ptr
-    ldy #0
-    lda #$00
-    sta (game_zp_src),y
-
+    lda #T_EMPTY
+    jsr game_set_point
     lda game_target_x
     sta game_point_x
     lda game_target_y
     sta game_point_y
-    jsr game_get_point_ptr
-    ldy #0
-    lda #$38
-    sta (game_zp_src),y
-
+    lda #T_ROCKFORD
+    jsr game_set_point
     lda game_target_x
     sta game_player_x
     lda game_target_y
     sta game_player_y
     jsr game_update_view
-
     lda #1
     sta game_video_dirty
 @blocked:
@@ -338,7 +628,6 @@ game_tile_char_map:
     lda game_player_y
     sta game_target_y
     jmp game_try_move
-
 @right:
     lda game_pad_pressed
     and #PAD_RIGHT
@@ -352,7 +641,6 @@ game_tile_char_map:
     lda game_player_y
     sta game_target_y
     jmp game_try_move
-
 @up:
     lda game_pad_pressed
     and #PAD_UP
@@ -366,7 +654,6 @@ game_tile_char_map:
     lda game_player_x
     sta game_target_x
     jmp game_try_move
-
 @down:
     lda game_pad_pressed
     and #PAD_DOWN
@@ -380,7 +667,6 @@ game_tile_char_map:
     lda game_player_x
     sta game_target_x
     jmp game_try_move
-
 @done:
     rts
 .endproc
@@ -391,13 +677,11 @@ game_tile_char_map:
     sta game_pad_previous
     sta game_pad_pressed
     sta game_video_dirty
+    sta game_video_full_dirty
     sta game_view_x
     sta game_view_y
-
+    sta game_phys_counter
     jsr game_copy_initial_cave
-
-    ; Cave 1 birth point. For this first interactive slice we replace the birth
-    ; animation tile with the normal Rockford logical tile immediately.
     lda #3
     sta game_player_x
     sta game_point_x
@@ -406,9 +690,8 @@ game_tile_char_map:
     sta game_point_y
     jsr game_get_point_ptr
     ldy #0
-    lda #$38
+    lda #T_ROCKFORD
     sta (game_zp_src),y
-
     jsr game_update_view
     jsr game_render_cave
     jsr platform_init
@@ -416,39 +699,28 @@ game_tile_char_map:
 .endproc
 
 .proc game_tick
-    ; Read the pad state left by the previous video frame first. This gives the
-    ; common core the visible-display period to update gameplay and rebuild a
-    ; dirty render buffer before waiting for the next VBlank upload window.
+    stz game_video_full_dirty
     lda game_pad_current
     sta game_pad_previous
-
     jsr platform_read_pad
     sta game_pad_current
-
     lda game_pad_previous
     eor #$ff
     and game_pad_current
     sta game_pad_pressed
-
     jsr game_handle_player
-
+    jsr game_physics_step
     lda game_video_dirty
     beq @render_ready
     jsr game_render_cave
-
 @render_ready:
-    ; Synchronize only after gameplay/render preparation. Platform video
-    ; uploads that follow can therefore run immediately inside VBlank.
     jsr platform_wait_frame
-
     lda game_video_dirty
     beq @no_video_change
     jsr platform_video_begin
     jsr platform_video_end
     stz game_video_dirty
-
 @no_video_change:
-    ; Audio remains a required but deferred backend.
     jsr platform_audio_tick
     rts
 .endproc
