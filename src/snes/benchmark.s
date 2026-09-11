@@ -6,12 +6,14 @@
 .export platform_benchmark_tick
 .export platform_benchmark_show
 .export snes_benchmark_draw
+.export snes_benchmark_nmi
 
 VMAIN   = $2115
 VMADDL  = $2116
 VMADDH  = $2117
 VMDATAL = $2118
 VMDATAH = $2119
+RDNMI   = $4210
 
 ; Charset slots $02-$0d are unused by every 2x2 cave tile quadrant.
 ; The charset is uploaded beginning at hardware tile $40.
@@ -38,8 +40,18 @@ bench_digit:  .res 1
 .endproc
 
 .proc platform_benchmark_tick
-    ; The ROM header declares Europe/PAL. platform_wait_frame synchronizes to
-    ; one SNES VBlank, so elapsed wall time is approximately 20 ms per tick.
+    ; SNES elapsed time is counted by the VBlank NMI, not by game-loop calls.
+    ; This means missed frames caused by slow physics/rendering are included.
+    rts
+.endproc
+
+.proc snes_benchmark_nmi
+    ; Europe/PAL SNES: one VBlank is ~20 ms. Count every hardware VBlank so
+    ; benchmark time remains real even when one game iteration spans multiple
+    ; display frames.
+    php
+    pha
+    lda RDNMI
     clc
     lda bench_ms_lo
     adc #20
@@ -47,7 +59,9 @@ bench_digit:  .res 1
     lda bench_ms_hi
     adc #0
     sta bench_ms_hi
-    rts
+    pla
+    plp
+    rti
 .endproc
 
 .proc platform_benchmark_show
