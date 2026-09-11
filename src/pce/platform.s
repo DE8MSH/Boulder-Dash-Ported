@@ -138,9 +138,12 @@ pce_raw_buttons: .res 1
     st1 #$88
     st2 #$00
 
-    lda #$03
+    ; Reset the controller/multitap scan chain once at startup.
+    lda #$01            ; SEL=1, CLR=0
     sta JOYPAD
-    lda #$01
+    lda #$03            ; SEL=1, CLR=1
+    sta JOYPAD
+    lda #$01            ; SEL=1, CLR=0
     sta JOYPAD
     rts
 .endproc
@@ -154,18 +157,32 @@ pce_raw_buttons: .res 1
 .endproc
 
 .proc platform_read_pad
-    lda #$01
+    ; HuC6280 controller protocol: pulse CLR once per complete scan, keep SEL
+    ; high for the direction nibble, then drive SEL low for I/II/Select/Run.
+    ; The return lines are active-low.
+    lda #$01            ; SEL=1, CLR=0
     sta JOYPAD
+    lda #$03            ; SEL=1, CLR=1 -> reset to pad 1
+    sta JOYPAD
+    lda #$01            ; SEL=1, CLR=0 -> directions
+    sta JOYPAD
+
+    ; Give the pad enough settling time after changing CLR/SEL.
+    pha
+    pla
     nop
-    nop
+
     lda JOYPAD
     and #$0f
     eor #$0f
     sta pce_raw_dpad
 
-    stz JOYPAD
+    lda #$00            ; SEL=0, CLR=0 -> buttons
+    sta JOYPAD
+    pha
+    pla
     nop
-    nop
+
     lda JOYPAD
     and #$0f
     eor #$0f
@@ -173,6 +190,8 @@ pce_raw_buttons: .res 1
 
     stz pad_result
 
+    ; Direction nibble with SEL=1:
+    ; d3 Left, d2 Right, d1 Down, d0 Up.
     lda pce_raw_dpad
     and #%00001000
     beq :+
@@ -201,6 +220,9 @@ pce_raw_buttons: .res 1
     ora #PAD_DOWN
     sta pad_result
 :
+
+    ; Button nibble with SEL=0:
+    ; d3 Run, d2 Select, d1 II, d0 I.
     lda pce_raw_buttons
     and #%00000001
     beq :+
