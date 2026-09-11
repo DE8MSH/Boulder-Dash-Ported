@@ -39,11 +39,9 @@ DAS0H    = $4306
 CAVE_RENDER_BYTES = 32 * 28 * 2
 
 ; VIC-II PAL reference colors (Pepto palette) quantized to SNES BGR555.
-; $08 orange  #6F4F25 -> $114D
-; $09 brown   #433900 -> $00E8
-; $0A lt red  #9A6759 -> $2DB3
-; $0B dk gray #444444 -> $2108
-; $04 purple  #6F3D86 -> $40ED
+C64_WHITE_SN    = $7fff
+C64_BLUE_SN     = $3ca6
+C64_LTBLUE_SN   = $596d
 C64_ORANGE_SN   = $114d
 C64_BROWN_SN    = $00e8
 C64_LIGHTRED_SN = $2db3
@@ -81,11 +79,108 @@ snes_palette_cave: .res 1
     rts
 .endproc
 
+.proc snes_upload_game_tiles
+    lda #$80
+    sta VMAIN
+    stz VMADDL
+    lda #$04
+    sta VMADDH
+
+    rep #$10
+    .i16
+    ldx #$0000
+@tiles:
+    lda bd_charset_snes,x
+    sta VMDATAL
+    inx
+    lda bd_charset_snes,x
+    sta VMDATAH
+    inx
+    cpx #bd_charset_snes_bytes
+    bne @tiles
+
+    stz VMADDL
+    lda #$10
+    sta VMADDH
+    ldx #1024
+@clear_map:
+    stz VMDATAL
+    stz VMDATAH
+    dex
+    bne @clear_map
+    sep #$10
+    .i8
+    rts
+.endproc
+
+.proc snes_upload_intro
+    lda #$38
+    sta BG1SC
+    lda #$80
+    sta VMAIN
+
+    ; Original C64 title image tiles live in LoROM bank 1.
+    stz VMADDL
+    lda #$04
+    sta VMADDH
+    lda #$01
+    sta DMAP0
+    lda #$18
+    sta BBAD0
+    lda #<bd_intro_tiles_snes
+    sta A1T0L
+    lda #>bd_intro_tiles_snes
+    sta A1T0H
+    lda #^bd_intro_tiles_snes
+    sta A1B0
+    lda #<bd_intro_tiles_snes_bytes
+    sta DAS0L
+    lda #>bd_intro_tiles_snes_bytes
+    sta DAS0H
+    lda #$01
+    sta MDMAEN
+
+    ; 32x32 title map, with the 40x25 C64 picture resampled to 32x25.
+    stz VMADDL
+    lda #$38
+    sta VMADDH
+    lda #<bd_intro_map_snes
+    sta A1T0L
+    lda #>bd_intro_map_snes
+    sta A1T0H
+    lda #^bd_intro_map_snes
+    sta A1B0
+    lda #<bd_intro_map_snes_bytes
+    sta DAS0L
+    lda #>bd_intro_map_snes_bytes
+    sta DAS0H
+    lda #$01
+    sta MDMAEN
+    rts
+.endproc
+
 .proc snes_write_color
     ; A=low byte, X=high byte of one BGR555 color.
     sta CGDATA
     txa
     sta CGDATA
+    rts
+.endproc
+
+.proc snes_load_intro_palette
+    ; Original C64 start screen: black, blue, light blue, white multicolor.
+    stz CGADD
+    stz CGDATA
+    stz CGDATA
+    lda #<C64_BLUE_SN
+    ldx #>C64_BLUE_SN
+    jsr snes_write_color
+    lda #<C64_LTBLUE_SN
+    ldx #>C64_LTBLUE_SN
+    jsr snes_write_color
+    lda #<C64_WHITE_SN
+    ldx #>C64_WHITE_SN
+    jsr snes_write_color
     rts
 .endproc
 
@@ -96,7 +191,6 @@ snes_palette_cave: .res 1
     sta snes_palette_cave
 
     stz CGADD
-    ; VIC-II cave background D021 is black.
     stz CGDATA
     stz CGDATA
 
@@ -106,7 +200,6 @@ snes_palette_cave: .res 1
     cmp #3
     beq @cave3
 
-    ; Cave 1 header: D022=$08, D023=$0b, Color RAM=$09.
     lda #<C64_ORANGE_SN
     ldx #>C64_ORANGE_SN
     jsr snes_write_color
@@ -119,7 +212,6 @@ snes_palette_cave: .res 1
     rts
 
 @cave2:
-    ; Cave 2 header: D022=$0a, D023=$04, Color RAM=$09.
     lda #<C64_LIGHTRED_SN
     ldx #>C64_LIGHTRED_SN
     jsr snes_write_color
@@ -132,7 +224,6 @@ snes_palette_cave: .res 1
     rts
 
 @cave3:
-    ; Cave 3 header: D022=$09, D023=$08, Color RAM=$09.
     lda #<C64_BROWN_SN
     ldx #>C64_BROWN_SN
     jsr snes_write_color
@@ -160,11 +251,8 @@ snes_palette_cave: .res 1
 
     lda #$8f
     sta INIDISP
-
     lda #$01
     sta BGMODE
-    lda #$10
-    sta BG1SC
     stz BG12NBA
     stz TS
     stz SETINI
@@ -174,53 +262,41 @@ snes_palette_cave: .res 1
     stz BG1VOFS
     stz BG1VOFS
 
-    lda #$80
-    sta VMAIN
-    stz VMADDL
-    lda #$04
-    sta VMADDH
+    ; Enable automatic joypad sampling before showing the C64 title screen.
+    lda #%00000001
+    sta NMITIMEN
 
-    rep #$10
-    .i16
-    ldx #$0000
-@upload_tiles:
-    lda bd_charset_snes,x
-    sta VMDATAL
-    inx
-    lda bd_charset_snes,x
-    sta VMDATAH
-    inx
-    cpx #bd_charset_snes_bytes
-    bne @upload_tiles
+    jsr snes_upload_intro
+    jsr snes_load_intro_palette
+    lda #$01
+    sta TM
 
-    stz VMADDL
+@intro_vblank:
+    lda HVBJOY
+    bpl @intro_vblank
+    lda #$0f
+    sta INIDISP
+
+@intro_wait:
+    jsr platform_wait_frame
+    jsr platform_read_pad
+    and #(PAD_FIRE | PAD_START)
+    beq @intro_wait
+
+    ; Replace the title assets with the normal cave assets while forced blank.
+    lda #$8f
+    sta INIDISP
     lda #$10
-    sta VMADDH
-    ldx #1024
-@clear_map:
-    stz VMDATAL
-    stz VMDATAH
-    dex
-    bne @clear_map
-    sep #$10
-    .i8
-
+    sta BG1SC
+    jsr snes_upload_game_tiles
     jsr snes_upload_cave
-
     lda #$ff
     sta snes_palette_cave
     jsr snes_load_cave_palette
 
-    lda #$01
-    sta TM
-
-    ; Automatic joypad sampling only. No benchmark NMI.
-    lda #%00000001
-    sta NMITIMEN
-
-@wait_vblank:
+@game_vblank:
     lda HVBJOY
-    bpl @wait_vblank
+    bpl @game_vblank
     lda #$0f
     sta INIDISP
     rts
@@ -297,8 +373,6 @@ snes_palette_cave: .res 1
 .endproc
 
 .proc platform_video_begin
-    ; game_tick enters here in VBlank, so palette changes and VRAM DMA are
-    ; applied together without visible tearing when advancing caves.
     jsr snes_load_cave_palette
     jsr snes_upload_cave
     rts
@@ -316,3 +390,6 @@ snes_palette_cave: .res 1
 
 .segment "RODATA"
 .include "../../build/generated/snes/charset.inc"
+
+.segment "INTRO_RODATA"
+.include "../../build/generated/snes/intro.inc"
