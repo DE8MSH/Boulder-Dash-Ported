@@ -2,8 +2,14 @@
 
 .include "../common/platform.inc"
 
-; SNES CPU I/O registers used by the first porting stage.
+; SNES CPU / PPU registers used by the first porting stage.
 INIDISP  = $2100
+BGMODE   = $2105
+TM       = $212C
+TS       = $212D
+CGADD    = $2121
+CGDATA   = $2122
+SETINI   = $2133
 NMITIMEN = $4200
 HVBJOY   = $4212
 JOY1H    = $4219
@@ -24,19 +30,42 @@ pad_result: .res 1
     tcd
     sep #$30
 
-    ; Auto joypad read on, NMI/IRQ still off for the polling bootstrap.
+    ; Force blank while touching PPU state.
+    lda #$80
+    sta INIDISP
+
+    ; Minimal deterministic PPU state. No BG/OBJ layers yet; color 0 is the
+    ; visible backdrop. Mode 1 is selected now because Boulder Dash will use
+    ; tile backgrounds in the next milestone.
+    lda #$01
+    sta BGMODE
+    stz TM
+    stz TS
+    stz SETINI
+
+    ; CGRAM color 0: dark blue (BGR555 = $3000).
+    stz CGADD
+    lda #$00
+    sta CGDATA
+    lda #$30
+    sta CGDATA
+
+    ; Auto joypad read on, NMI/IRQ still off for this polling bootstrap.
     lda #%00000001
     sta NMITIMEN
 
-    ; Stay force-blanked until the video backend has uploaded valid tiles/maps.
-    lda #$80
+    ; Leave forced blank only during VBlank to avoid display glitches.
+@wait_vblank:
+    lda HVBJOY
+    bpl @wait_vblank
+    lda #$0f            ; display on, full brightness
     sta INIDISP
     rts
 .endproc
 
 .proc platform_wait_frame
     ; Poll one complete frame edge. This intentionally avoids requiring a
-    ; vector/NMI setup before ROM packaging exists.
+    ; vector/NMI setup while the port is still in bootstrap form.
 @leave_vblank:
     lda HVBJOY
     bmi @leave_vblank
@@ -109,8 +138,8 @@ pad_result: .res 1
 .endproc
 
 .proc platform_video_begin
-    ; Buffered VRAM/OAM/CGRAM uploads will be added after the C64 character
-    ; data has a defined conversion format.
+    ; Buffered VRAM/OAM/CGRAM uploads are added with converted C64 character
+    ; data. The visible backdrop already proves PPU initialization works.
     rts
 .endproc
 
