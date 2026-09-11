@@ -27,9 +27,16 @@ assets: check
 		build/generated/common/cave1.inc \
 		build/generated/pce/cave1_bat.inc
 
-snes-obj: assets
+# ca65 only supports +/-127-byte relative branches. The shared cave scan's
+# final row loop is slightly larger, so build a source-identical temporary
+# copy with the standard inverse-branch + JMP form. No gameplay/timing/demo
+# behaviour is changed here.
+build/generated/common/game-build.s: src/common/game.s | assets
+	$(PYTHON) -c 'from pathlib import Path; p=Path("src/common/game.s"); t=p.read_text(); old="    cmp #21\n    bne @row\n    rts\n.endproc\n"; new="    cmp #21\n    beq :+\n    jmp @row\n:\n    rts\n.endproc\n"; assert old in t, "cave scan branch not found"; Path("build/generated/common/game-build.s").write_text(t.replace(old,new,1))'
+
+snes-obj: assets build/generated/common/game-build.s
 	@mkdir -p build/snes
-	cd src/common && $(CA65) --cpu 65816 game.s -o ../../build/snes/game.o
+	cd src/common && $(CA65) --cpu 65816 ../../build/generated/common/game-build.s -I . -o ../../build/snes/game.o
 	cd src/common && $(CA65) --cpu 65816 game_flow.s -o ../../build/snes/game_flow.o
 	cd src/common && $(CA65) --cpu 65816 game_progress.s -o ../../build/snes/game_progress.o
 	cd src/common && $(CA65) --cpu 65816 cave_preview.s -o ../../build/snes/cave_preview.o
@@ -37,9 +44,9 @@ snes-obj: assets
 	cd src/snes && $(CA65) startup.s -o ../../build/snes/startup.o
 	@echo "built SNES objects (65C816)"
 
-pce-obj: assets
+pce-obj: assets build/generated/common/game-build.s
 	@mkdir -p build/pce
-	cd src/common && $(CA65) --cpu huc6280 game.s -o ../../build/pce/game.o
+	cd src/common && $(CA65) --cpu huc6280 ../../build/generated/common/game-build.s -I . -o ../../build/pce/game.o
 	cd src/common && $(CA65) --cpu huc6280 game_flow.s -o ../../build/pce/game_flow.o
 	cd src/common && $(CA65) --cpu huc6280 game_progress.s -o ../../build/pce/game_progress.o
 	cd src/common && $(CA65) --cpu huc6280 cave_preview.s -o ../../build/pce/cave_preview.o
@@ -64,6 +71,7 @@ selfplay: check
 
 verify: all
 	$(PYTHON) scripts/check-roms.py
+	$(PYTHON) scripts/selfplay-regression.py
 
 run-snes: snes-rom check-emulator
 	$(MEDNAFEN) build/snes/boulder-dash.sfc
