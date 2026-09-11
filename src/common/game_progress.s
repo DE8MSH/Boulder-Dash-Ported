@@ -4,13 +4,13 @@
 .import game_player_x
 .import game_player_y
 .import game_player_alive
+.import game_video_dirty
 .import game_flow_init
 .import game_flow_lose_life
 .import game_flow_add_time_bonus
 .import game_game_over
 .import platform_benchmark_reset
 .import platform_benchmark_tick
-.import platform_benchmark_show
 
 .export game_progress_tick
 .export game_cave_complete
@@ -53,7 +53,7 @@ game_cave_time:            .res 1
     lda game_game_over
     bne @done
     lda game_cave_complete
-    bne @show_done
+    bne @hold_result
 
     ; One call per host frame. Each backend converts its actual pacing source
     ; into milliseconds so SNES and PCE results can be compared directly.
@@ -85,17 +85,20 @@ game_cave_time:            .res 1
 
     lda #1
     sta game_cave_complete
+    sta game_video_dirty
     stz game_player_alive
 
     lda game_cave_time
     jsr game_flow_add_time_bonus
     stz game_cave_time
+    rts
 
-@show_done:
-    ; Cave physics can still dirty the display after Rockford reaches the exit.
-    ; Redraw the frozen result after every host frame so a later full BAT/BG
-    ; upload cannot erase the benchmark overlay.
-    jsr platform_benchmark_show
+@hold_result:
+    ; Force a video pass every frame after completion. Each console draws the
+    ; frozen benchmark overlay after its normal cave upload, inside its safe
+    ; hardware-specific video path.
+    lda #1
+    sta game_video_dirty
     rts
 
 @count_time:
