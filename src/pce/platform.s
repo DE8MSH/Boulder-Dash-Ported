@@ -39,16 +39,16 @@ CAVE_RENDER_BYTES = 32 * 28 * 2
 DEBUG_FONT_WORD  = $0C00
 DEBUG_BLANK      = $C0
 DEBUG_0          = $C1
+DEBUG_A          = $CB
+DEBUG_B          = $CC
+DEBUG_C          = $CD
+DEBUG_D          = $CE
+DEBUG_E          = $CF
+DEBUG_F          = $D0
 DEBUG_S          = $D1
 DEBUG_P          = $D2
 DEBUG_V          = $D3
 DEBUG_COMMA      = $D4
-DEBUG_F          = $D0
-DEBUG_D          = $CE
-DEBUG_B          = $CC
-DEBUG_A          = $CB
-DEBUG_E          = $CF
-DEBUG_C          = $CD
 DEBUG_GLYPHS     = 21
 
 .segment "ZEROPAGE"
@@ -74,12 +74,15 @@ pce_addr_buf:      .res 2
 pce_dirty_buf:     .res 4
 
 ; Freeze diagnostic state shown in the top two BAT rows.
-pce_debug_stage:    .res 1
-pce_debug_frame_lo: .res 1
-pce_debug_frame_hi: .res 1
-pce_debug_status:   .res 1
-pce_debug_line:     .res 128
-pce_debug_tile_buf: .res 32
+pce_debug_stage:         .res 1
+pce_debug_frame_lo:      .res 1
+pce_debug_frame_hi:      .res 1
+pce_debug_status:        .res 1
+pce_debug_timeout_count: .res 1
+pce_wait_lo:             .res 1
+pce_wait_hi:             .res 1
+pce_debug_line:          .res 128
+pce_debug_tile_buf:      .res 32
 
 .segment "RODATA"
 ; Compact 8x8 1bpp diagnostic font. Order:
@@ -157,8 +160,7 @@ pce_debug_font_rows:
     rts
 .endproc
 
-; A=value, X=byte offset in pce_debug_line. Writes two hexadecimal cells and
-; advances X by four bytes.
+; A=value, X=byte offset in pce_debug_line.
 .proc pce_debug_hex2
     sta pce_addr_hi
     lsr a
@@ -222,7 +224,7 @@ pce_debug_font_rows:
     lda #DEBUG_COMMA
     sta pce_debug_line+56
 
-    ; Row 1: Ahh Ehh Chh
+    ; Row 1: Ahh Ehh Chh. C is VBlank wait timeout count.
     lda #DEBUG_A
     sta pce_debug_line+$40+0
     lda #DEBUG_E
@@ -233,29 +235,24 @@ pce_debug_font_rows:
 .endproc
 
 .proc pce_debug_draw
-    ; frame high/low -> cells 1..4
     ldx #$02
     lda pce_debug_frame_hi
     jsr pce_debug_hex2
     lda pce_debug_frame_lo
     jsr pce_debug_hex2
 
-    ; stage -> cells 7..8
     ldx #$0e
     lda pce_debug_stage
     jsr pce_debug_hex2
 
-    ; raw dpad -> cells 11..12
     ldx #$16
     lda pce_raw_dpad
     jsr pce_debug_hex2
 
-    ; raw buttons -> cells 15..16
     ldx #$1e
     lda pce_raw_buttons
     jsr pce_debug_hex2
 
-    ; player x/y
     ldx #$26
     lda game_player_x
     jsr pce_debug_hex2
@@ -263,7 +260,6 @@ pce_debug_font_rows:
     lda game_player_y
     jsr pce_debug_hex2
 
-    ; view x/y
     ldx #$34
     lda game_view_x
     jsr pce_debug_hex2
@@ -271,7 +267,6 @@ pce_debug_font_rows:
     lda game_view_y
     jsr pce_debug_hex2
 
-    ; Row 1: common pad, last VDC status, dirty flag.
     ldx #($40 + 2)
     lda game_pad_current
     jsr pce_debug_hex2
@@ -279,12 +274,9 @@ pce_debug_font_rows:
     lda pce_debug_status
     jsr pce_debug_hex2
     ldx #($40 + 18)
-    lda game_video_dirty
+    lda pce_debug_timeout_count
     jsr pce_debug_hex2
 
-    ; Fixed BAT address 0, two rows x 32 cells. The fixed MAWR setup uses the
-    ; dedicated HuC6280 VDC instructions; only the already-selected DATA port
-    ; receives the bulk TIA transfer.
     st0 #VDC_MAWR
     st1 #$00
     st2 #$00
@@ -434,6 +426,7 @@ pce_debug_font_rows:
     stz pce_debug_frame_lo
     stz pce_debug_frame_hi
     stz pce_debug_status
+    stz pce_debug_timeout_count
     stz VCE_CTRL
 
     jsr pce_debug_init_line
@@ -514,6 +507,7 @@ pce_debug_font_rows:
     sta VCE_DATA_L
     stz VCE_DATA_H
 
+    ; Backdrop/border black.
     stz VCE_ADDR_L
     lda #$01
     sta VCE_ADDR_H
@@ -537,6 +531,7 @@ pce_debug_font_rows:
     lda game_view_y
     sta pce_last_view_y
 
+    ; Reset controller scan chain.
     lda #$01
     sta JOYPAD
     lda #$03
@@ -550,11 +545,30 @@ pce_debug_font_rows:
     lda #$20
     sta pce_debug_stage
     jsr pce_debug_draw
+
+    ; Never hard-lock the game on a missing VBlank event. About 16K status
+    ; polls is comfortably longer than a normal frame on this code path.
+    stz pce_wait_lo
+    lda #$40
+    sta pce_wait_hi
 @wait_vblank:
     lda VDC_STATUS
     sta pce_debug_status
     and #$20
-    beq @wait_vblank
+    bne @got_vblank
+
+    dec pce_wait_lo
+    bne @wait_vblank
+    dec pce_wait_hi
+    bne @wait_vblank
+
+    inc pce_debug_timeout_count
+    lda #$2f
+    sta pce_debug_stage
+    jsr pce_debug_draw
+    rts
+
+@got_vblank:
     lda #$21
     sta pce_debug_stage
     rts
@@ -592,6 +606,7 @@ pce_debug_font_rows:
 
     stz pad_result
 
+    ; Direction nibble: d3 Left, d2 Down, d1 Right, d0 Up.
     lda pce_raw_dpad
     and #%00001000
     beq :+
@@ -621,6 +636,7 @@ pce_debug_font_rows:
     sta pad_result
 :
 
+    ; Button nibble: d3 Run, d2 Select, d1 II, d0 I.
     lda pce_raw_buttons
     and #%00000001
     beq :+
@@ -642,6 +658,7 @@ pce_debug_font_rows:
     ora #PAD_SELECT
     sta pad_result
 :
+
     lda pad_result
     rts
 .endproc
@@ -679,6 +696,7 @@ pce_debug_font_rows:
     sta pce_debug_stage
     jsr pce_debug_draw
 
+    ; Safe fallback: blank BG while the full BAT is replaced.
     st0 #VDC_CR
     st1 #$08
     st2 #$00
