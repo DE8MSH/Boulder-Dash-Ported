@@ -11,6 +11,7 @@
 .import game_game_over
 .import platform_benchmark_reset
 .import platform_benchmark_tick
+.import platform_benchmark_show
 
 .export game_progress_tick
 .export game_cave_complete
@@ -91,14 +92,15 @@ game_cave_time:            .res 1
     lda game_cave_time
     jsr game_flow_add_time_bonus
     stz game_cave_time
+    jsr platform_benchmark_show
     rts
 
 @hold_result:
-    ; Force a video pass every frame after completion. Each console draws the
-    ; frozen benchmark overlay after its normal cave upload, inside its safe
-    ; hardware-specific video path.
+    ; Keep scheduling a video pass after completion. PCE redraws the result
+    ; here; SNES defers the actual VRAM writes to its VBlank video path.
     lda #1
     sta game_video_dirty
+    jsr platform_benchmark_show
     rts
 
 @count_time:
