@@ -15,15 +15,25 @@ def prepare_game(src: str, step: int, threshold: int) -> str:
 
     # Visible benchmark build: keep the real shared game core, but feed each
     # logical cave pass from the generated C64-format autoplay stream instead
-    # of the physical controller. The original source file remains unchanged.
+    # of the physical controller. Explicitly reset the stream because console
+    # WRAM power-on contents are not guaranteed to be zero.
     text = text.replace(
         ".import game_cave_initial",
-        ".import game_cave_initial\n.import game_autoplay_read",
+        ".import game_cave_initial\n.import game_autoplay_read\n.import game_autoplay_reset",
         1,
     )
     if "jsr platform_read_pad" not in text:
         raise SystemExit("pad read call not found")
     text = text.replace("jsr platform_read_pad", "jsr game_autoplay_read", 1)
+
+    init_anchor = "    jsr game_copy_initial_cave\n"
+    if init_anchor not in text:
+        raise SystemExit("game init cave-copy call not found")
+    text = text.replace(
+        init_anchor,
+        init_anchor + "    jsr game_autoplay_reset\n",
+        1,
+    )
     return text
 
 
