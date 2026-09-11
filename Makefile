@@ -23,6 +23,9 @@ assets: check
 	$(PYTHON) scripts/convert-charset.py B1_GfxS.asm --source-format gfx --limit 124 \
 		--snes-out build/generated/snes/charset.inc \
 		--pce-out build/generated/pce/charset.inc
+	$(PYTHON) scripts/generate-diamond-animation.py B1_MiscS.asm \
+		build/generated/snes/diamond-anim.inc \
+		build/generated/pce/diamond-anim.inc
 	$(PYTHON) scripts/generate-cave1.py \
 		build/generated/common/cave1.inc \
 		build/generated/pce/cave1_bat.inc
@@ -38,17 +41,20 @@ build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-sour
 	$(PYTHON) scripts/prepare-game-source.py src/common/game.s build/generated/common/game-build.s
 	$(PYTHON) scripts/fix-generated-branches.py build/generated/common/game-build.s
 
+build/generated/snes/platform-build.s: src/snes/platform.s scripts/prepare-snes-platform.py | assets
+	$(PYTHON) scripts/prepare-snes-platform.py src/snes/platform.s build/generated/snes/platform-build.s
+
 build/generated/pce/platform-build.s: src/pce/platform.s scripts/prepare-pce-platform.py | assets
 	$(PYTHON) scripts/prepare-pce-platform.py src/pce/platform.s build/generated/pce/platform-build.s
 
-snes-obj: assets build/generated/common/game-build.s
+snes-obj: assets build/generated/common/game-build.s build/generated/snes/platform-build.s
 	@mkdir -p build/snes
 	cd src/common && $(CA65) --cpu 65816 ../../build/generated/common/game-build.s -I . -o ../../build/snes/game.o
 	cd src/common && $(CA65) --cpu 65816 game_caves_runtime.s -o ../../build/snes/game_caves_runtime.o
 	cd src/common && $(CA65) --cpu 65816 game_flow.s -o ../../build/snes/game_flow.o
 	cd src/common && $(CA65) --cpu 65816 game_progress.s -o ../../build/snes/game_progress.o
 	cd src/common && $(CA65) --cpu 65816 cave_preview.s -o ../../build/snes/cave_preview.o
-	cd src/snes && $(CA65) platform.s -o ../../build/snes/platform.o
+	cd src/snes && $(CA65) ../../build/generated/snes/platform-build.s -I . -o ../../build/snes/platform.o
 	cd src/snes && $(CA65) startup.s -o ../../build/snes/startup.o
 	@echo "built SNES objects (65C816)"
 
