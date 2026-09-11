@@ -42,8 +42,9 @@ assets: check
 		build/generated/pce/intro-bank6.inc \
 		build/generated/pce/intro-bank7.inc
 
-build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-source.py scripts/fix-generated-branches.py | assets
+build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-source.py scripts/add-butterfly-support.py scripts/fix-generated-branches.py | assets
 	$(PYTHON) scripts/prepare-game-source.py src/common/game.s build/generated/common/game-build.s
+	$(PYTHON) scripts/add-butterfly-support.py build/generated/common/game-build.s
 	$(PYTHON) scripts/fix-generated-branches.py build/generated/common/game-build.s
 
 build/generated/snes/platform-build.s: src/snes/platform.s scripts/prepare-snes-platform.py scripts/fix-generated-platform-video.py scripts/fix-generated-cave-palettes.py | assets
