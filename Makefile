@@ -29,7 +29,7 @@ assets: check
 
 snes-obj: assets
 	@mkdir -p build/snes
-	cd src/common && $(CA65) --cpu 65816 game.s -o ../../build/snes/game.o
+	cd src/common && $(CA65) --cpu 65816 -D LOGIC_STEP=5 game.s -o ../../build/snes/game.o
 	cd src/common && $(CA65) --cpu 65816 cave_preview.s -o ../../build/snes/cave_preview.o
 	cd src/snes && $(CA65) platform.s -o ../../build/snes/platform.o
 	cd src/snes && $(CA65) startup.s -o ../../build/snes/startup.o
@@ -37,7 +37,7 @@ snes-obj: assets
 
 pce-obj: assets
 	@mkdir -p build/pce
-	cd src/common && $(CA65) --cpu huc6280 game.s -o ../../build/pce/game.o
+	cd src/common && $(CA65) --cpu huc6280 -D LOGIC_STEP=4 game.s -o ../../build/pce/game.o
 	cd src/common && $(CA65) --cpu huc6280 cave_preview.s -o ../../build/pce/cave_preview.o
 	cd src/pce && $(CA65) platform.s -o ../../build/pce/platform.o
 	cd src/pce && $(CA65) startup.s -o ../../build/pce/startup.o
