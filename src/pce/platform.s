@@ -276,17 +276,19 @@ pce_last_vdc_status:     .res 1
 
     jsr pce_upload_cave
 
+    ; Cave 1 C64 multicolor palette from the original cave header:
+    ; $08 orange, $0b dark gray, $09 brown. PCE VCE entries are 9-bit GRB.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
     stz VCE_DATA_L
     stz VCE_DATA_H
-    lda #$e9
+    lda #$f1                    ; C64 orange
     sta VCE_DATA_L
     stz VCE_DATA_H
-    lda #$db
+    lda #$db                    ; C64 dark gray
     sta VCE_DATA_L
     stz VCE_DATA_H
-    lda #$a0
+    lda #$98                    ; C64 brown
     sta VCE_DATA_L
     stz VCE_DATA_H
 
