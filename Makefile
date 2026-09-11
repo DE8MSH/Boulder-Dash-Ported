@@ -1,8 +1,9 @@
 CA65 ?= ca65
 LD65 ?= ld65
 PYTHON ?= python3
+MEDNAFEN ?= mednafen
 
-.PHONY: all check snes-obj pce-obj snes-rom pce-rom verify clean
+.PHONY: all check check-emulator snes-obj pce-obj snes-rom pce-rom verify run-snes run-pce run-both clean
 
 all: snes-rom pce-rom
 
@@ -12,6 +13,10 @@ check:
 	@command -v $(PYTHON) >/dev/null || (echo "error: python3 not found" && exit 1)
 	@echo "ca65: $$($(CA65) --version 2>&1 | head -n 1)"
 	@echo "ld65: $$($(LD65) --version 2>&1 | head -n 1)"
+
+check-emulator:
+	@command -v $(MEDNAFEN) >/dev/null || (echo "error: mednafen not found; install with: sudo apt install mednafen" && exit 1)
+	@echo "mednafen: $$($(MEDNAFEN) -help 2>&1 | head -n 1 || true)"
 
 snes-obj: check
 	@mkdir -p build/snes
@@ -41,6 +46,18 @@ pce-rom: pce-obj
 
 verify: all
 	$(PYTHON) scripts/check-roms.py
+
+run-snes: snes-rom check-emulator
+	$(MEDNAFEN) build/snes/boulder-dash.sfc
+
+run-pce: pce-rom check-emulator
+	$(MEDNAFEN) build/pce/boulder-dash.pce
+
+run-both: all check-emulator
+	@echo "Starting SNES and PC Engine ROMs in separate Mednafen processes..."
+	@$(MEDNAFEN) build/snes/boulder-dash.sfc >/tmp/boulder-dash-snes-mednafen.log 2>&1 & \
+	$(MEDNAFEN) build/pce/boulder-dash.pce >/tmp/boulder-dash-pce-mednafen.log 2>&1 & \
+	wait
 
 clean:
 	rm -rf build
