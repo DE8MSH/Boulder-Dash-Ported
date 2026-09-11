@@ -88,22 +88,20 @@ pad_result: .res 1
     dex
     bne @clear_map
 
-    ; Cave memory stores Boulder Dash object/tile IDs. The original C64 does
-    ; not use those IDs as character numbers directly; TabCaveTileCharNo maps
-    ; each object to the character cell that represents it. Apply the same
-    ; mapping here before writing the SNES tilemap.
+    ; game_cave_view is now the exact 32x28 C64 character-cell layout for a
+    ; 16x14 logical-object viewport. The generator has already applied
+    ; TabCaveTileCharNo and the original 2x2 layout:
+    ;   base, base+1 / base+$10, base+$11.
     stz VMADDL
     lda #$10
     sta VMADDH
     ldx #$0000
 @write_cave:
     lda game_cave_view,x
-    tay
-    lda bd1_tile_char_map,y
     sta VMDATAL
     stz VMDATAH
     inx
-    cpx #704
+    cpx #896            ; 32 * 28 character cells
     bne @write_cave
 
     sep #$10
@@ -217,16 +215,4 @@ pad_result: .res 1
 .endproc
 
 .segment "RODATA"
-
-; Original Boulder Dash I TabCaveTileCharNo table.
-bd1_tile_char_map:
-    .byte $60,$46,$4e,$22,$2e,$62,$2e,$4a
-    .byte $64,$64,$64,$64,$64,$64,$64,$64
-    .byte $44,$44,$44,$44,$48,$48,$48,$48
-    .byte $00,$00,$00,$66,$68,$6a,$68,$66
-    .byte $24,$26,$28,$2a,$2c,$62,$66,$68
-    .byte $6a,$00,$00,$00,$00,$00,$00,$00
-    .byte $20,$20,$20,$20,$20,$20,$20,$20
-    .byte $4c,$4c,$40,$40,$00,$00,$00,$00
-
 .include "../../build/generated/snes/charset.inc"
