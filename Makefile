@@ -19,10 +19,11 @@ check-emulator:
 	@echo "mednafen: $$($(MEDNAFEN) -help 2>&1 | sed -n '1p' || true)"
 
 assets: check
-	@mkdir -p build/generated/snes build/generated/pce
+	@mkdir -p build/generated/snes build/generated/pce build/generated/common
 	$(PYTHON) scripts/convert-charset.py B1_ChrS.asm --limit 64 \
 		--snes-out build/generated/snes/charset.inc \
 		--pce-out build/generated/pce/charset.inc
+	$(PYTHON) scripts/generate-cave1.py build/generated/common/cave1.inc
 
 snes-obj: assets
 	@mkdir -p build/snes
