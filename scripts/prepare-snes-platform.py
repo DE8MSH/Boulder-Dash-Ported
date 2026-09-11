@@ -13,8 +13,21 @@ src = src.replace(
     "CAVE_RENDER_BYTES = 32 * 28 * 2\n"
     "DIAMOND_TOP_WORD = $0880\n"
     "DIAMOND_BOTTOM_WORD = $0980\n"
-    "INTRO_MAP_WORD = $3800\n"
+    "INTRO_MAP_WORD = $7C00\n"
     "INTRO_MAP_BYTES = $0800\n",
+    1,
+)
+
+# Keep the complete 32x32 intro map at the top of VRAM so all deduplicated
+# animated title tiles can remain resident below it.
+src = src.replace(
+    "    lda #$38\n    sta BG1SC\n",
+    "    lda #$7c\n    sta BG1SC\n",
+    1,
+)
+src = src.replace(
+    "    stz VMADDL\n    lda #$38\n    sta VMADDH\n    lda #<bd_intro_map_snes\n",
+    "    stz VMADDL\n    lda #$7c\n    sta VMADDH\n    lda #<bd_intro_map_snes\n",
     1,
 )
 
