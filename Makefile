@@ -48,9 +48,10 @@ build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-sour
 	$(PYTHON) scripts/enable-autoplayer.py build/generated/common/game-build.s
 	$(PYTHON) scripts/fix-generated-branches.py build/generated/common/game-build.s
 
-build/generated/common/game-autoplay-build.s: src/common/game_autoplay.s scripts/prepare-autoplayer.py scripts/add-autoplay-pathfinding.py | assets
+build/generated/common/game-autoplay-build.s: src/common/game_autoplay.s scripts/prepare-autoplayer.py scripts/add-autoplay-pathfinding.py scripts/fix-autoplay-pathfinding.py | assets
 	$(PYTHON) scripts/prepare-autoplayer.py src/common/game_autoplay.s build/generated/common/game-autoplay-build.s
 	$(PYTHON) scripts/add-autoplay-pathfinding.py build/generated/common/game-autoplay-build.s
+	$(PYTHON) scripts/fix-autoplay-pathfinding.py build/generated/common/game-autoplay-build.s
 
 build/generated/snes/platform-build.s: src/snes/platform.s scripts/prepare-snes-platform.py scripts/fix-generated-platform-video.py scripts/fix-generated-cave-palettes.py | assets
 	$(PYTHON) scripts/prepare-snes-platform.py src/snes/platform.s build/generated/snes/platform-build.s
