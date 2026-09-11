@@ -250,9 +250,18 @@ pce_diag_counter: .res 1
 
 .proc platform_video_begin
     ; DIAGNOSTIC MODE: intentionally perform no runtime VDC/BAT writes.
-    ; Every successful game movement reaches this function, so change palette
-    ; entry 1 instead. If this keeps changing indefinitely, the freeze is in
-    ; the removed runtime VDC path rather than input/frame/game logic.
+    rts
+.endproc
+
+.proc platform_video_end
+    rts
+.endproc
+
+.proc platform_audio_tick
+    ; DIAGNOSTIC HEARTBEAT: this runs every completed game frame, regardless
+    ; of movement or collision. Continuously animate palette entry 1. If this
+    ; stops, the frame loop itself is stalled; if it keeps running, any apparent
+    ; movement freeze is elsewhere (input/collision/rendering).
     inc pce_diag_counter
 
     lda #$01
@@ -264,15 +273,6 @@ pce_diag_counter: .res 1
     ora #$80
     sta VCE_DATA_L
     stz VCE_DATA_H
-    rts
-.endproc
-
-.proc platform_video_end
-    rts
-.endproc
-
-.proc platform_audio_tick
-    ; Deferred milestone: HuC6280 PSG music and SFX backend.
     rts
 .endproc
 
