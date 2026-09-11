@@ -34,6 +34,16 @@ def prepare_game(src: str, step: int, threshold: int) -> str:
         init_anchor + "    jsr game_autoplay_reset\n",
         1,
     )
+
+    # Adding the benchmark/autoplay imports and timing code can push the
+    # bottom-of-row loop just beyond the 6502-family +/-127 byte branch range.
+    # Preserve the exact loop semantics with an inverse short branch + JMP.
+    long_row_branch = "    cmp #21\n    bne @row\n    rts\n"
+    safe_row_branch = "    cmp #21\n    beq :+\n    jmp @row\n:\n    rts\n"
+    if long_row_branch not in text:
+        raise SystemExit("cave scan row branch not found")
+    text = text.replace(long_row_branch, safe_row_branch, 1)
+
     return text
 
 
