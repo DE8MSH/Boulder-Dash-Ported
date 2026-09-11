@@ -6,6 +6,8 @@
 
 .import game_cave_render
 .import game_progress_tick
+.import game_cave_complete
+.import platform_benchmark_show
 
 INIDISP  = $2100
 BGMODE   = $2105
@@ -243,6 +245,14 @@ pad_result: .res 1
     ; game_tick calls this immediately after platform_wait_frame, so this DMA
     ; begins inside VBlank and requires no visible force-blank interval.
     jsr snes_upload_cave
+
+    ; The benchmark text must be written after the full cave tilemap DMA, in
+    ; the same VBlank. Otherwise a later full upload erases it or an out-of-
+    ; VBlank VRAM write can be ignored by the SNES PPU.
+    lda game_cave_complete
+    beq @done
+    jsr platform_benchmark_show
+@done:
     rts
 .endproc
 
