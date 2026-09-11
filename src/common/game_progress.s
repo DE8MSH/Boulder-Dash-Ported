@@ -8,12 +8,14 @@
 .import game_flow_lose_life
 .import game_flow_add_time_bonus
 .import game_game_over
+.import platform_benchmark_reset
+.import platform_benchmark_tick
+.import platform_benchmark_show
 
 .export game_progress_tick
 .export game_cave_complete
 .export game_cave_time
 
-; Cave 1 original header values.
 CAVE1_TIME_SECONDS = 150
 CAVE1_EXIT_X       = $26
 CAVE1_EXIT_Y       = $12
@@ -35,6 +37,7 @@ game_cave_time:            .res 1
     stz game_cave_complete
     lda #CAVE1_TIME_SECONDS
     sta game_cave_time
+    jsr platform_benchmark_reset
     rts
 .endproc
 
@@ -49,11 +52,13 @@ game_cave_time:            .res 1
 @initialized:
     lda game_game_over
     bne @done
-
     lda game_cave_complete
     bne @done
 
-    ; Keep the explosion visible before consuming a life and rebuilding Cave 1.
+    ; One call per host frame. Each backend converts its actual pacing source
+    ; into milliseconds so SNES and PCE results can be compared directly.
+    jsr platform_benchmark_tick
+
     lda game_player_alive
     bne @check_exit
     inc game_progress_death_wait
@@ -69,7 +74,6 @@ game_cave_time:            .res 1
 @check_exit:
     stz game_progress_death_wait
 
-    ; The original open exit completes the cave when Rockford enters it.
     lda game_exit_open
     beq @count_time
     lda game_player_x
@@ -86,11 +90,14 @@ game_cave_time:            .res 1
     lda game_cave_time
     jsr game_flow_add_time_bonus
     stz game_cave_time
+
+    ; We are still in the frame reached via platform_wait_frame. Put the final
+    ; first-run time directly into the top-right BG/BAT cells and leave it
+    ; there after completion.
+    jsr platform_benchmark_show
     rts
 
 @count_time:
-    ; Cave 1 starts at $96 = 150 seconds. Keep the cave clock independent of
-    ; movement timing so later SNES/PCE pacing calibration cannot change it.
     inc game_progress_frame
     lda game_progress_frame
     cmp #FRAMES_PER_SECOND
@@ -103,8 +110,6 @@ game_cave_time:            .res 1
     bne @done
 
 @time_out:
-    ; Zero time is handled like any other failed attempt: the death delay is
-    ; entered, one life is consumed, then Cave 1 is rebuilt if lives remain.
     stz game_player_alive
     stz game_progress_death_wait
 
