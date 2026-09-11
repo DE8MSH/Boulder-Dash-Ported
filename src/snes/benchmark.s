@@ -5,6 +5,7 @@
 .export platform_benchmark_reset
 .export platform_benchmark_tick
 .export platform_benchmark_show
+.export snes_benchmark_draw
 
 VMAIN   = $2115
 VMADDL  = $2116
@@ -87,6 +88,12 @@ bench_d4:    .res 1
 .endproc
 
 .proc platform_benchmark_show
+    ; The shared progress code may call this outside VBlank. SNES VRAM writes
+    ; are therefore deferred to snes_benchmark_draw from platform_video_begin.
+    rts
+.endproc
+
+.proc snes_benchmark_draw
     lda #$80
     sta VMAIN
     lda #<OVERLAY_VRAM
