@@ -40,21 +40,16 @@ PCE_PATTERN_WORD = $0400
 PCE_PATTERN_TILE = $0040
 CAVE_RENDER_BYTES = 32 * 28 * 2
 
-; VIC-II PAL reference colors (Pepto palette) quantized to HuC6260 9-bit GRB
-; (bits 8..6 green, 5..3 red, 2..0 blue).
-; $08 orange  #6F4F25 -> $099
-; $09 brown   #433900 -> $090
-; $0A lt red  #9A6759 -> $0E2
-; $0B dk gray #444444 -> $092
-; $04 purple  #6F3D86 -> $09C
-C64_ORANGE_PCE   = $99
-C64_BROWN_PCE    = $90
-C64_LIGHTRED_PCE = $e2
-C64_DARKGRAY_PCE = $92
-C64_PURPLE_PCE   = $9c
+; VIC-II PAL Pepto colors quantized to HuC6260 GGGRRRBBB (9-bit).
+C64_WHITE_PCE    = $1ff
+C64_BLUE_PCE     = $04b
+C64_LTBLUE_PCE   = $0dd
+C64_ORANGE_PCE   = $099
+C64_BROWN_PCE    = $090
+C64_LIGHTRED_PCE = $0e2
+C64_DARKGRAY_PCE = $092
+C64_PURPLE_PCE   = $09c
 
-; HuC6280 timer runs at ~6.99 kHz. Reload $74 gives 117 ticks,
-; approximately 59.75 Hz, close to the PCE display rate.
 PCE_TIMER_RELOAD = $74
 PCE_TIMER_IRQ    = $04
 
@@ -96,6 +91,33 @@ pce_last_vdc_status:     .res 1
     rts
 .endproc
 
+.proc pce_write_color
+    ; A=low byte, X=high bit(s) of HuC6260 9-bit color.
+    sta VCE_DATA_L
+    txa
+    sta VCE_DATA_H
+    rts
+.endproc
+
+.proc pce_load_intro_palette
+    ; Original C64 start screen: D021 black, D022 blue, D023 light blue,
+    ; multicolor character foreground white.
+    stz VCE_ADDR_L
+    stz VCE_ADDR_H
+    stz VCE_DATA_L
+    stz VCE_DATA_H
+    lda #<C64_BLUE_PCE
+    ldx #>C64_BLUE_PCE
+    jsr pce_write_color
+    lda #<C64_LTBLUE_PCE
+    ldx #>C64_LTBLUE_PCE
+    jsr pce_write_color
+    lda #<C64_WHITE_PCE
+    ldx #>C64_WHITE_PCE
+    jsr pce_write_color
+    rts
+.endproc
+
 .proc pce_load_cave_palette
     lda game_current_cave
     cmp pce_palette_cave
@@ -104,7 +126,7 @@ pce_last_vdc_status:     .res 1
 
     stz VCE_ADDR_L
     stz VCE_ADDR_H
-    stz VCE_DATA_L             ; VIC-II D021 cave background black
+    stz VCE_DATA_L
     stz VCE_DATA_H
 
     lda game_current_cave
@@ -113,43 +135,124 @@ pce_last_vdc_status:     .res 1
     cmp #3
     beq @cave3
 
-    ; Cave 1: D022=$08, D023=$0b, Color RAM=$09.
-    lda #C64_ORANGE_PCE
-    sta VCE_DATA_L
-    stz VCE_DATA_H
-    lda #C64_DARKGRAY_PCE
-    sta VCE_DATA_L
-    stz VCE_DATA_H
-    lda #C64_BROWN_PCE
-    sta VCE_DATA_L
-    stz VCE_DATA_H
+    lda #<C64_ORANGE_PCE
+    ldx #>C64_ORANGE_PCE
+    jsr pce_write_color
+    lda #<C64_DARKGRAY_PCE
+    ldx #>C64_DARKGRAY_PCE
+    jsr pce_write_color
+    lda #<C64_BROWN_PCE
+    ldx #>C64_BROWN_PCE
+    jsr pce_write_color
     rts
 
 @cave2:
-    ; Cave 2: D022=$0a, D023=$04, Color RAM=$09.
-    lda #C64_LIGHTRED_PCE
-    sta VCE_DATA_L
-    stz VCE_DATA_H
-    lda #C64_PURPLE_PCE
-    sta VCE_DATA_L
-    stz VCE_DATA_H
-    lda #C64_BROWN_PCE
-    sta VCE_DATA_L
-    stz VCE_DATA_H
+    lda #<C64_LIGHTRED_PCE
+    ldx #>C64_LIGHTRED_PCE
+    jsr pce_write_color
+    lda #<C64_PURPLE_PCE
+    ldx #>C64_PURPLE_PCE
+    jsr pce_write_color
+    lda #<C64_BROWN_PCE
+    ldx #>C64_BROWN_PCE
+    jsr pce_write_color
     rts
 
 @cave3:
-    ; Cave 3: D022=$09, D023=$08, Color RAM=$09.
-    lda #C64_BROWN_PCE
-    sta VCE_DATA_L
-    stz VCE_DATA_H
-    lda #C64_ORANGE_PCE
-    sta VCE_DATA_L
-    stz VCE_DATA_H
-    lda #C64_BROWN_PCE
-    sta VCE_DATA_L
-    stz VCE_DATA_H
+    lda #<C64_BROWN_PCE
+    ldx #>C64_BROWN_PCE
+    jsr pce_write_color
+    lda #<C64_ORANGE_PCE
+    ldx #>C64_ORANGE_PCE
+    jsr pce_write_color
+    lda #<C64_BROWN_PCE
+    ldx #>C64_BROWN_PCE
+    jsr pce_write_color
 @done:
+    rts
+.endproc
+
+; Expand X source tiles (X=0 means 256) from packed planes 0/1 into full
+; 4bpp HuC6270 VRAM tiles. pce_zp_src points into the currently mapped MPR6.
+.proc pce_upload_intro_tile_block
+@tile:
+    ldy #$00
+@planes01:
+    lda (pce_zp_src),y
+    sta VDC_DATA_L
+    iny
+    lda (pce_zp_src),y
+    sta VDC_DATA_L+1
+    iny
+    cpy #16
+    bne @planes01
+
+    ldy #8
+@planes23:
+    st1 #$00
+    st2 #$00
+    dey
+    bne @planes23
+
+    clc
+    lda pce_zp_src
+    adc #16
+    sta pce_zp_src
+    lda pce_zp_src+1
+    adc #0
+    sta pce_zp_src+1
+    dex
+    bne @tile
+    rts
+.endproc
+
+.proc pce_upload_intro
+    ; Physical HuCard bank 2: first 512 packed 2bpp title tiles.
+    lda #$02
+    tam #$40
+    st0 #VDC_MAWR
+    st1 #<PCE_PATTERN_WORD
+    st2 #>PCE_PATTERN_WORD
+    st0 #VDC_DATA
+
+    lda #<bd_intro_tiles_pce_part0
+    sta pce_zp_src
+    lda #>bd_intro_tiles_pce_part0
+    sta pce_zp_src+1
+    ldx #0
+    jsr pce_upload_intro_tile_block
+    ldx #0
+    jsr pce_upload_intro_tile_block
+
+    ; Physical bank 3: remaining 289 title tiles plus the complete BAT.
+    lda #$03
+    tam #$40
+    lda #<bd_intro_tiles_pce_part1
+    sta pce_zp_src
+    lda #>bd_intro_tiles_pce_part1
+    sta pce_zp_src+1
+    ldx #0
+    jsr pce_upload_intro_tile_block
+    ldx #33
+    jsr pce_upload_intro_tile_block
+
+    st0 #VDC_MAWR
+    st1 #$00
+    st2 #$00
+    st0 #VDC_DATA
+    tia bd_intro_map_pce, VDC_DATA_L, bd_intro_map_pce_bytes
+    rts
+.endproc
+
+.proc pce_upload_game_tiles
+    ; Restore physical bank 1 in MPR6 for the normal gameplay charset.
+    lda #$01
+    tam #$40
+    st0 #VDC_MAWR
+    st1 #<PCE_PATTERN_WORD
+    st2 #>PCE_PATTERN_WORD
+    st0 #VDC_DATA
+    tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
     rts
 .endproc
 
@@ -285,9 +388,6 @@ pce_last_vdc_status:     .res 1
     stz pce_last_vdc_status
     stz VCE_CTRL
 
-    ; Use the CPU timer purely as a polled pacing source. SEI remains set, so
-    ; no timer IRQ handler is required; the request bit is acknowledged by
-    ; writing IRQ_STATUS after every tick.
     stz TIMER_CTRL
     lda #PCE_TIMER_RELOAD
     sta TIMER_RELOAD
@@ -298,6 +398,7 @@ pce_last_vdc_status:     .res 1
     lda #$01
     sta TIMER_CTRL
 
+    ; Video timing stays in the existing stable 256-pixel mode.
     st0 #VDC_CR
     st1 #$00
     st2 #$00
@@ -326,34 +427,30 @@ pce_last_vdc_status:     .res 1
     st1 #$00
     st2 #$00
 
-    st0 #VDC_MAWR
-    st1 #<PCE_PATTERN_WORD
-    st2 #>PCE_PATTERN_WORD
-    st0 #VDC_DATA
-    tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
+    ; Show the original C64 title screen before installing gameplay graphics.
+    jsr pce_upload_intro
+    jsr pce_load_intro_palette
+    st0 #VDC_CR
+    st1 #$88
+    st2 #$00
 
-    st0 #VDC_MAWR
+@intro_wait:
+    jsr platform_wait_frame
+    jsr platform_read_pad
+    and #(PAD_FIRE | PAD_START)
+    beq @intro_wait
+
+    ; Blank while replacing title graphics with the gameplay charset/BAT.
+    st0 #VDC_CR
     st1 #$00
     st2 #$00
-    st0 #VDC_DATA
-    ldy #$04
-@bat_page:
-    ldx #$00
-@bat_blank:
-    st1 #<PCE_PATTERN_TILE
-    st2 #>PCE_PATTERN_TILE
-    inx
-    bne @bat_blank
-    dey
-    bne @bat_page
-
+    jsr pce_upload_game_tiles
     jsr pce_upload_cave
 
     lda #$ff
     sta pce_palette_cave
     jsr pce_load_cave_palette
 
-    ; Clear the first entry of sprite palette 0 as before.
     stz VCE_ADDR_L
     lda #$01
     sta VCE_ADDR_H
@@ -471,11 +568,8 @@ pce_last_vdc_status:     .res 1
 .endproc
 
 .proc platform_video_begin
-    ; Apply the VIC-II cave palette when advancing caves, then update the BAT.
     jsr pce_load_cave_palette
 
-    ; Physics may change many cave cells in one scan. Use a full BAT refresh for
-    ; those frames; keep the small two-object path for player-only movement.
     lda game_video_full_dirty
     bne @full
 
@@ -524,7 +618,11 @@ pce_last_vdc_status:     .res 1
     rts
 .endproc
 
-; The 124 converted C64 characters are the largest read-only asset. Keep them
-; in physical HuCard bank $01, permanently mapped by startup at $C000-$DFFF.
 .segment "BANK1_RODATA"
 .include "../../build/generated/pce/charset.inc"
+
+.segment "INTRO2_RODATA"
+.include "../../build/generated/pce/intro-bank2.inc"
+
+.segment "INTRO3_RODATA"
+.include "../../build/generated/pce/intro-bank3.inc"
