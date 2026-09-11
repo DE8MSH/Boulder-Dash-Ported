@@ -3,7 +3,7 @@ LD65 ?= ld65
 PYTHON ?= python3
 MEDNAFEN ?= mednafen
 
-.PHONY: all check check-emulator assets snes-obj pce-obj snes-rom pce-rom verify run-snes run-pce run-both clean
+.PHONY: all check check-emulator assets snes-obj pce-obj snes-rom pce-rom selfplay verify run-snes run-pce run-both clean
 
 all: snes-rom pce-rom
 
@@ -65,8 +65,12 @@ pce-rom: pce-obj
 		build/pce/startup.o build/pce/game.o build/pce/game_flow.o build/pce/game_progress.o build/pce/cave_preview.o build/pce/platform.o
 	@echo "built build/pce/boulder-dash.pce"
 
+selfplay: check
+	$(PYTHON) scripts/selfplay-regression.py
+
 verify: all
 	$(PYTHON) scripts/check-roms.py
+	$(PYTHON) scripts/selfplay-regression.py
 
 run-snes: snes-rom check-emulator
 	$(MEDNAFEN) build/snes/boulder-dash.sfc
