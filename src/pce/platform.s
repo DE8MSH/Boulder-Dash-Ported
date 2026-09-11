@@ -3,9 +3,14 @@
 .include "../common/platform.inc"
 
 .import game_cave_render
+.import game_player_x
+.import game_player_y
+.import game_view_x
+.import game_view_y
 
 VDC_STATUS  = $0000
 VDC_DATA_L  = $0002
+VDC_DATA_H  = $0003
 VCE_CTRL    = $0400
 VCE_ADDR_L  = $0402
 VCE_ADDR_H  = $0403
@@ -29,11 +34,28 @@ PCE_PATTERN_WORD = $0400
 PCE_PATTERN_TILE = $0040
 CAVE_RENDER_BYTES = 32 * 28 * 2
 
+.segment "ZEROPAGE"
+pce_zp_src: .res 2
+
 .segment "BSS"
 pad_result:       .res 1
 pce_raw_dpad:     .res 1
 pce_raw_buttons:  .res 1
-pce_diag_counter: .res 1
+pce_repeat_dir:   .res 1
+pce_repeat_count: .res 1
+
+pce_last_player_x: .res 1
+pce_last_player_y: .res 1
+pce_last_view_x:   .res 1
+pce_last_view_y:   .res 1
+pce_obj_x:         .res 1
+pce_obj_y:         .res 1
+pce_rel_x:         .res 1
+pce_rel_y:         .res 1
+pce_addr_lo:       .res 1
+pce_addr_hi:       .res 1
+pce_addr_buf:      .res 2
+pce_dirty_buf:     .res 4
 
 .segment "CODE"
 
@@ -46,11 +68,143 @@ pce_diag_counter: .res 1
     rts
 .endproc
 
+; Upload one logical 16x16 cave object (2x2 BAT cells) from the shared
+; 32x28 render buffer. This is the small-update path that previously removed
+; the visible full-screen flicker during ordinary movement.
+.proc pce_upload_object
+    lda pce_obj_x
+    sec
+    sbc game_view_x
+    sta pce_rel_x
+    lda pce_obj_y
+    sec
+    sbc game_view_y
+    sta pce_rel_y
+
+    ; Source pointer = game_cave_render + rel_y*128 + rel_x*4.
+    lda #<game_cave_render
+    sta pce_zp_src
+    lda #>game_cave_render
+    sta pce_zp_src+1
+
+    ldx pce_rel_y
+    beq @src_rows_done
+@src_add_row:
+    clc
+    lda pce_zp_src
+    adc #$80
+    sta pce_zp_src
+    lda pce_zp_src+1
+    adc #$00
+    sta pce_zp_src+1
+    dex
+    bne @src_add_row
+@src_rows_done:
+    lda pce_rel_x
+    asl a
+    asl a
+    clc
+    adc pce_zp_src
+    sta pce_zp_src
+    lda pce_zp_src+1
+    adc #$00
+    sta pce_zp_src+1
+
+    ; BAT word address = rel_y*64 + rel_x*2.
+    stz pce_addr_lo
+    stz pce_addr_hi
+    ldx pce_rel_y
+    beq @addr_rows_done
+@addr_add_row:
+    clc
+    lda pce_addr_lo
+    adc #$40
+    sta pce_addr_lo
+    lda pce_addr_hi
+    adc #$00
+    sta pce_addr_hi
+    dex
+    bne @addr_add_row
+@addr_rows_done:
+    lda pce_rel_x
+    asl a
+    clc
+    adc pce_addr_lo
+    sta pce_addr_lo
+    lda pce_addr_hi
+    adc #$00
+    sta pce_addr_hi
+
+    ; Top two character cells.
+    ldy #$00
+    lda (pce_zp_src),y
+    sta pce_dirty_buf
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+1
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+2
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+3
+
+    lda pce_addr_lo
+    sta pce_addr_buf
+    lda pce_addr_hi
+    sta pce_addr_buf+1
+    st0 #VDC_MAWR
+    tia pce_addr_buf, VDC_DATA_L, 2
+    st0 #VDC_DATA
+    tia pce_dirty_buf, VDC_DATA_L, 4
+
+    ; Bottom two cells are one 32-cell BAT row lower and 64 source bytes later.
+    clc
+    lda pce_zp_src
+    adc #$40
+    sta pce_zp_src
+    lda pce_zp_src+1
+    adc #$00
+    sta pce_zp_src+1
+
+    clc
+    lda pce_addr_lo
+    adc #$20
+    sta pce_addr_lo
+    lda pce_addr_hi
+    adc #$00
+    sta pce_addr_hi
+
+    ldy #$00
+    lda (pce_zp_src),y
+    sta pce_dirty_buf
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+1
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+2
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+3
+
+    lda pce_addr_lo
+    sta pce_addr_buf
+    lda pce_addr_hi
+    sta pce_addr_buf+1
+    st0 #VDC_MAWR
+    tia pce_addr_buf, VDC_DATA_L, 2
+    st0 #VDC_DATA
+    tia pce_dirty_buf, VDC_DATA_L, 4
+    rts
+.endproc
+
 .proc platform_init
     sei
     csh
 
-    stz pce_diag_counter
+    stz pce_repeat_dir
+    stz pce_repeat_count
     stz VCE_CTRL
 
     st0 #VDC_CR
@@ -89,15 +243,13 @@ pce_diag_counter: .res 1
     st1 #$00
     st2 #$00
 
-    ; Graphics upload. Dedicated ST0/ST1/ST2 selects the VDC registers;
-    ; TIA is used only after VDC_DATA has been selected.
     st0 #VDC_MAWR
     st1 #<PCE_PATTERN_WORD
     st2 #>PCE_PATTERN_WORD
     st0 #VDC_DATA
     tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
 
-    ; Clear the complete 32x32 BAT while display is disabled.
+    ; Clear complete 32x32 BAT with tile $40 before copying visible viewport.
     st0 #VDC_MAWR
     st1 #$00
     st2 #$00
@@ -113,10 +265,9 @@ pce_diag_counter: .res 1
     dey
     bne @bat_page
 
-    ; Initial viewport upload is known-good while BG is still disabled.
     jsr pce_upload_cave
 
-    ; Temporary Cave 1 palette.
+    ; Temporary Cave 1 palette. Exact C64 palette calibration is deferred.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
     stz VCE_DATA_L
@@ -138,10 +289,18 @@ pce_diag_counter: .res 1
     stz VCE_DATA_L
     stz VCE_DATA_H
 
-    ; BG on + VBlank status/event enabled.
     st0 #VDC_CR
     st1 #$88
     st2 #$00
+
+    lda game_player_x
+    sta pce_last_player_x
+    lda game_player_y
+    sta pce_last_player_y
+    lda game_view_x
+    sta pce_last_view_x
+    lda game_view_y
+    sta pce_last_view_y
 
     ; Reset controller scan chain.
     lda #$01
@@ -162,7 +321,6 @@ pce_diag_counter: .res 1
 .endproc
 
 .proc platform_read_pad
-    ; Reset to pad 1, then read active-low direction nibble with SEL=1.
     lda #$01
     sta JOYPAD
     lda #$03
@@ -178,7 +336,6 @@ pce_diag_counter: .res 1
     eor #$0f
     sta pce_raw_dpad
 
-    ; Buttons with SEL=0.
     lda #$00
     sta JOYPAD
     pha
@@ -244,12 +401,79 @@ pce_diag_counter: .res 1
     ora #PAD_SELECT
     sta pad_result
 :
+
+    ; The common core currently reacts to newly-pressed directions. Convert a
+    ; held PCE direction into a new pulse every six frames so holding the pad
+    ; feels continuous instead of looking like a freeze after one step.
+    lda pad_result
+    and #(PAD_LEFT | PAD_RIGHT | PAD_UP | PAD_DOWN)
+    beq @no_direction
+    cmp pce_repeat_dir
+    bne @new_direction
+
+    inc pce_repeat_count
+    lda pce_repeat_count
+    cmp #6
+    bcs @repeat_now
+
+    lda pad_result
+    and #$f0
+    sta pad_result
+    bra @return
+
+@repeat_now:
+    stz pce_repeat_count
+    bra @return
+
+@new_direction:
+    sta pce_repeat_dir
+    stz pce_repeat_count
+    bra @return
+
+@no_direction:
+    stz pce_repeat_dir
+    stz pce_repeat_count
+
+@return:
     lda pad_result
     rts
 .endproc
 
 .proc platform_video_begin
-    ; DIAGNOSTIC MODE: intentionally perform no runtime VDC/BAT writes.
+    ; Ordinary movement updates only Rockford's old/new logical cells.
+    lda game_view_x
+    cmp pce_last_view_x
+    bne @full
+    lda game_view_y
+    cmp pce_last_view_y
+    bne @full
+
+    lda pce_last_player_x
+    sta pce_obj_x
+    lda pce_last_player_y
+    sta pce_obj_y
+    jsr pce_upload_object
+
+    lda game_player_x
+    sta pce_obj_x
+    lda game_player_y
+    sta pce_obj_y
+    jsr pce_upload_object
+    bra @remember
+
+@full:
+    ; Temporary fallback when the viewport itself scrolls.
+    jsr pce_upload_cave
+
+@remember:
+    lda game_player_x
+    sta pce_last_player_x
+    lda game_player_y
+    sta pce_last_player_y
+    lda game_view_x
+    sta pce_last_view_x
+    lda game_view_y
+    sta pce_last_view_y
     rts
 .endproc
 
@@ -258,21 +482,7 @@ pce_diag_counter: .res 1
 .endproc
 
 .proc platform_audio_tick
-    ; DIAGNOSTIC HEARTBEAT: this runs every completed game frame, regardless
-    ; of movement or collision. Continuously animate palette entry 1. If this
-    ; stops, the frame loop itself is stalled; if it keeps running, any apparent
-    ; movement freeze is elsewhere (input/collision/rendering).
-    inc pce_diag_counter
-
-    lda #$01
-    sta VCE_ADDR_L
-    stz VCE_ADDR_H
-
-    lda pce_diag_counter
-    and #$7f
-    ora #$80
-    sta VCE_DATA_L
-    stz VCE_DATA_H
+    ; Deferred milestone: HuC6280 PSG music and SFX backend.
     rts
 .endproc
 
