@@ -6,8 +6,7 @@ Python 3 shipped with Linux Mint 22.
 
 The verifier accepts bank-sized growth so the ports can expand without undoing
 the console-native layouts: 32 KiB LoROM banks on SNES and 8 KiB HuCard banks
-on PC Engine. The current linker files still emit one bank until banked
-segments are actually introduced.
+on PC Engine.
 """
 from pathlib import Path
 import struct
@@ -54,11 +53,15 @@ def check_pce() -> None:
     if len(rom) < 0x2000 or len(rom) % 0x2000:
         fail(f"PC Engine ROM is {len(rom)} bytes; expected a whole number of 8 KiB HuCard banks")
 
-    # The fixed vector bank is kept as the final 8 KiB bank when the image is
-    # expanded. The CPU still sees its reset vector at $FFFE.
-    reset, = struct.unpack_from("<H", rom, len(rom) - 2)
+    # HuC6280 reset forces MPR7=$00, so vectors always come from physical
+    # HuCard bank $00. In the ROM file that is byte $1FF6-$1FFF regardless of
+    # how many later 8 KiB banks are appended.
+    reset, = struct.unpack_from("<H", rom, 0x1FFE)
     if not 0xE000 <= reset < 0xFFF6:
-        fail(f"PCE reset vector ${reset:04X} is outside the fixed $E000-$FFF5 bank")
+        fail(f"PCE reset vector ${reset:04X} is outside fixed MPR7 bank-0 code")
+
+    if len(rom) >= 0x4000 and all(b == 0xFF for b in rom[0x2000:0x4000]):
+        fail("PCE bank 1 is present but completely empty")
 
     print(f"ok: PC Engine {len(rom) // 1024} KiB HuCard ({len(rom) // 0x2000} bank(s)), reset=${reset:04X}")
 
