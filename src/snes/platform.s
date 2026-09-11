@@ -160,7 +160,9 @@ pad_result: .res 1
     lda #$01
     sta TM
 
-    lda #%00000001
+    ; PAL benchmark timing is counted by the VBlank NMI. Bit 7 enables NMI;
+    ; bit 0 keeps automatic joypad sampling enabled.
+    lda #%10000001
     sta NMITIMEN
 
 @wait_vblank:
