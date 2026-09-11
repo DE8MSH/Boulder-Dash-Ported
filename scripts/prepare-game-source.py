@@ -10,6 +10,14 @@ src = Path(sys.argv[1]).read_text()
 src = src.replace("CAVE_ROWS = 22\nCAVE_BYTES = 880", "CAVE_ROWS = 23\nCAVE_BYTES = 920", 1)
 src = src.replace("cpy #112", "cpy #152")
 
+# Cave starts need to center the shared view immediately, not only after the
+# first player movement.
+src = src.replace(
+    ".export game_render_cave\n",
+    ".export game_render_cave\n.export game_update_view\n",
+    1,
+)
+
 # Cave scan processes rows 1..21 and leaves row 22 as the lower border/exit
 # row. ca65 cannot reach @row with a relative branch after the full dispatch.
 old = "    cmp #21\n    bne @row\n    rts\n.endproc\n"
