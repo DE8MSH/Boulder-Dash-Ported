@@ -45,20 +45,20 @@ def check_snes() -> None:
 
 def check_pce() -> None:
     rom = read_rom(PCE)
-    if len(rom) != 0x8000:
-        fail(f"PC Engine ROM is {len(rom)} bytes; expected 32768 with 4 HuCard banks")
+    if len(rom) != 0xC000:
+        fail(f"PC Engine ROM is {len(rom)} bytes; expected 49152 with 6 HuCard banks")
 
     reset, = struct.unpack_from("<H", rom, 0x1FFE)
     if not 0xE000 <= reset < 0xFFF6:
         fail(f"PCE reset vector ${reset:04X} is outside fixed MPR7 bank-0 code")
 
-    for bank in (1, 2, 3):
+    for bank in (1, 2, 3, 4, 5):
         start = bank * 0x2000
         end = start + 0x2000
         if all(b == 0xFF for b in rom[start:end]):
             fail(f"PCE HuCard bank {bank} is completely empty")
 
-    print(f"ok: PC Engine 32 KiB HuCard (4 banks), reset=${reset:04X}")
+    print(f"ok: PC Engine 48 KiB HuCard (6 banks), reset=${reset:04X}")
 
 
 def main() -> None:
