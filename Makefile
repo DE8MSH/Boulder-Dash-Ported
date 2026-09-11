@@ -27,6 +27,7 @@ assets: check
 snes-obj: assets
 	@mkdir -p build/snes
 	cd src/common && $(CA65) --cpu 65816 game.s -o ../../build/snes/game.o
+	cd src/common && $(CA65) --cpu 65816 cave_preview.s -o ../../build/snes/cave_preview.o
 	cd src/snes && $(CA65) platform.s -o ../../build/snes/platform.o
 	cd src/snes && $(CA65) startup.s -o ../../build/snes/startup.o
 	@echo "built SNES objects (65C816)"
@@ -34,6 +35,7 @@ snes-obj: assets
 pce-obj: assets
 	@mkdir -p build/pce
 	cd src/common && $(CA65) --cpu huc6280 game.s -o ../../build/pce/game.o
+	cd src/common && $(CA65) --cpu huc6280 cave_preview.s -o ../../build/pce/cave_preview.o
 	cd src/pce && $(CA65) platform.s -o ../../build/pce/platform.o
 	cd src/pce && $(CA65) startup.s -o ../../build/pce/startup.o
 	@echo "built PCE objects (HuC6280)"
@@ -41,13 +43,13 @@ pce-obj: assets
 snes-rom: snes-obj
 	$(LD65) -C cfg/snes-lorom.cfg -m build/snes/boulder-dash.map \
 		-o build/snes/boulder-dash.sfc \
-		build/snes/startup.o build/snes/game.o build/snes/platform.o
+		build/snes/startup.o build/snes/game.o build/snes/cave_preview.o build/snes/platform.o
 	@echo "built build/snes/boulder-dash.sfc"
 
 pce-rom: pce-obj
 	$(LD65) -C cfg/pce-hucard.cfg -m build/pce/boulder-dash.map \
 		-o build/pce/boulder-dash.pce \
-		build/pce/startup.o build/pce/game.o build/pce/platform.o
+		build/pce/startup.o build/pce/game.o build/pce/cave_preview.o build/pce/platform.o
 	@echo "built build/pce/boulder-dash.pce"
 
 verify: all
