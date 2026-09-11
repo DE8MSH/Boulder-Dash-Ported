@@ -4,6 +4,7 @@
 
 .export game_init
 .export game_tick
+.export game_render_cave
 .export game_pad_current
 .export game_pad_previous
 .export game_pad_pressed
