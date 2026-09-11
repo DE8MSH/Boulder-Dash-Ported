@@ -20,7 +20,7 @@ check-emulator:
 
 assets: check
 	@mkdir -p build/generated/snes build/generated/pce build/generated/common
-	$(PYTHON) scripts/convert-charset.py B1_GfxS.asm --source-format gfx --limit 128 \
+	$(PYTHON) scripts/convert-charset.py B1_GfxS.asm --source-format gfx --limit 124 \
 		--snes-out build/generated/snes/charset.inc \
 		--pce-out build/generated/pce/charset.inc
 	$(PYTHON) scripts/inject-benchmark-font.py \
