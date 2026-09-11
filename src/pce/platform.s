@@ -2,6 +2,8 @@
 
 .include "../common/platform.inc"
 
+.import game_cave_render
+
 VDC_STATUS  = $0000
 VDC_DATA_L  = $0002
 VDC_DATA_H  = $0003
@@ -26,6 +28,7 @@ VDC_VCR  = $0E
 
 PCE_PATTERN_WORD = $0400
 PCE_PATTERN_TILE = $0040
+CAVE_RENDER_BYTES = 32 * 28 * 2
 
 .segment "BSS"
 pad_result:      .res 1
@@ -33,6 +36,15 @@ pce_raw_dpad:    .res 1
 pce_raw_buttons: .res 1
 
 .segment "CODE"
+
+.proc pce_upload_cave
+    st0 #VDC_MAWR
+    st1 #$00
+    st2 #$00
+    st0 #VDC_DATA
+    tia game_cave_render, VDC_DATA_L, CAVE_RENDER_BYTES
+    rts
+.endproc
 
 .proc platform_init
     sei
@@ -82,11 +94,11 @@ pce_raw_buttons: .res 1
     st0 #VDC_DATA
     tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
 
+    ; Clear complete 32x32 BAT with tile $40 before copying visible viewport.
     st0 #VDC_MAWR
     st1 #$00
     st2 #$00
     st0 #VDC_DATA
-
     ldy #$04
 @bat_page:
     ldx #$00
@@ -98,31 +110,19 @@ pce_raw_buttons: .res 1
     dey
     bne @bat_page
 
-    ; Shared Cave 1 RNG/draw generator emits ready-made HuC6270 BAT words.
-    st0 #VDC_MAWR
-    st1 #$00
-    st2 #$00
-    st0 #VDC_DATA
-    tia pce_cave_bat, VDC_DATA_L, pce_cave_bat_bytes
+    jsr pce_upload_cave
 
-    ; Cave 1 C64 colors are $08/$0b/$09 (orange/dark gray/brown).
-    ; Converted multicolor pixels use palette roles 0..3:
-    ;   0 background black, 1 orange, 2 dark gray, 3 brown.
-    ; PCE values use 9-bit GRB and are close C64 approximations.
+    ; Temporary Cave 1 palette. Exact C64 palette calibration is deferred.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
-    ; color 0: black = $000
     stz VCE_DATA_L
     stz VCE_DATA_H
-    ; color 1: orange = $0e9
     lda #$e9
     sta VCE_DATA_L
     stz VCE_DATA_H
-    ; color 2: dark gray = $0db
     lda #$db
     sta VCE_DATA_L
     stz VCE_DATA_H
-    ; color 3: brown = $0a0
     lda #$a0
     sta VCE_DATA_L
     stz VCE_DATA_H
@@ -227,6 +227,7 @@ pce_raw_buttons: .res 1
 .endproc
 
 .proc platform_video_begin
+    jsr pce_upload_cave
     rts
 .endproc
 
@@ -240,5 +241,4 @@ pce_raw_buttons: .res 1
 .endproc
 
 .segment "RODATA"
-.include "../../build/generated/pce/cave1_bat.inc"
 .include "../../build/generated/pce/charset.inc"
