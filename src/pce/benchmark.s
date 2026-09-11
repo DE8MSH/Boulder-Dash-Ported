@@ -8,9 +8,10 @@ VDC_DATA_L = $0002
 VDC_MAWR   = $00
 VDC_DATA   = $02
 
-FONT_TILE_BASE = $70
-FONT_M_TILE    = $7a
-FONT_S_TILE    = $7b
+; Charset slots $70-$7b are uploaded beginning at hardware tile $40.
+FONT_TILE_BASE = $b0
+FONT_M_TILE    = $ba
+FONT_S_TILE    = $bb
 OVERLAY_BAT    = 25
 
 .segment "BSS"
