@@ -76,7 +76,7 @@ snes-obj: assets build/generated/common/game-build.s build/generated/common/game
 pce-obj: assets build/generated/common/game-build.s build/generated/common/game-autoplay-build.s build/generated/pce/platform-build.s
 	@mkdir -p build/pce
 	cd src/common && $(CA65) --cpu huc6280 ../../build/generated/common/game-build.s -I . -o ../../build/pce/game.o
-	cd src/common && $(CA65) --cpu huc6280 ../../build/generated/common/game-autoplay-build.s -I . -o ../../build/pce/game_autoplay.o
+	cd src/common && $(CA65) --cpu huc6280 -D PCE_AUTOPLAY_BANK=1 ../../build/generated/common/game-autoplay-build.s -I . -o ../../build/pce/game_autoplay.o
 	cd src/common && $(CA65) --cpu huc6280 game_caves_runtime.s -o ../../build/pce/game_caves_runtime.o
 	cd src/common && $(CA65) --cpu huc6280 game_flow.s -o ../../build/pce/game_flow.o
 	cd src/common && $(CA65) --cpu huc6280 game_progress.s -o ../../build/pce/game_progress.o
