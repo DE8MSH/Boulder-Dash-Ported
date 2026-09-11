@@ -18,10 +18,9 @@ VMDATAH = $2119
 FONT_TILE_BASE = $42
 FONT_M_TILE    = $4c
 FONT_S_TILE    = $4d
-OVERLAY_VRAM   = $101A       ; four digits + MS at columns 26..31
+OVERLAY_VRAM   = $1019       ; five digits + MS at columns 25..31
 
 .segment "BSS"
-bench_frac:   .res 1
 bench_ms_lo:  .res 1
 bench_ms_hi:  .res 1
 bench_tmp_lo: .res 1
@@ -33,25 +32,17 @@ bench_digit:  .res 1
 .segment "CODE"
 
 .proc platform_benchmark_reset
-    stz bench_frac
     stz bench_ms_lo
     stz bench_ms_hi
     rts
 .endproc
 
 .proc platform_benchmark_tick
-    ; NTSC SNES frame ~= 16.639 ms. Keep elapsed time as a plain binary
-    ; millisecond counter. Cave 1 autoplay is expected to finish below 10 s.
+    ; The ROM header declares Europe/PAL. platform_wait_frame synchronizes to
+    ; one SNES VBlank, so elapsed wall time is approximately 20 ms per tick.
     clc
-    lda bench_frac
-    adc #164
-    sta bench_frac
-    lda #16
-    bcc :+
-    lda #17
-:
-    clc
-    adc bench_ms_lo
+    lda bench_ms_lo
+    adc #20
     sta bench_ms_lo
     lda bench_ms_hi
     adc #0
@@ -115,8 +106,12 @@ bench_digit:  .res 1
     lda bench_ms_hi
     sta bench_tmp_hi
 
-    ; Cave 1 benchmark is below 10,000 ms, so render exactly four digits.
-    ; This deliberately avoids the previously faulty ten-thousands glyph/path.
+    ; Render the complete 16-bit millisecond value as five decimal digits.
+    lda #<10000
+    ldx #>10000
+    jsr snes_extract_digit
+    jsr snes_put_digit
+
     lda #<1000
     ldx #>1000
     jsr snes_extract_digit
