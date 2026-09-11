@@ -1,6 +1,7 @@
 .import game_cave_state
 
 .export game_build_cave2
+.export game_build_cave3
 
 CAVE_COLS = 40
 
@@ -15,22 +16,22 @@ T_DIAMOND     = $14
 T_ROCKFORD    = $38
 
 .segment "ZEROPAGE"
-cave2_ptr:     .res 2
-cave2_cmd_ptr: .res 2
+cave_ptr:     .res 2
+cave_cmd_ptr: .res 2
 
 .segment "BSS"
-cave2_seed:      .res 1
-cave2_start:     .res 1
-cave2_p1:        .res 1
-cave2_half:      .res 1
-cave2_carry:     .res 1
-cave2_rows_left: .res 1
-cave2_cols_left: .res 1
-cave2_x:         .res 1
-cave2_y:         .res 1
-cave2_len:       .res 1
-cave2_tile:      .res 1
-cave2_dir:       .res 1
+cave_seed:      .res 1
+cave_start:     .res 1
+cave_p1:        .res 1
+cave_half:      .res 1
+cave_carry:     .res 1
+cave_rows_left: .res 1
+cave_cols_left: .res 1
+cave_x:         .res 1
+cave_y:         .res 1
+cave_len:       .res 1
+cave_tile:      .res 1
+cave_dir:       .res 1
 
 .segment "RODATA"
 ; tile, x, y, length, direction (0=east, 1=south)
@@ -49,11 +50,17 @@ cave2_commands:
     .byte T_EXIT_CLOSED,18, 22,  1, 0
     .byte $ff
 
+; CaveData_03_Var: only birth and exit override the generated field.
+cave3_commands:
+    .byte T_ROCKFORD,     3,  4, 1, 0
+    .byte T_EXIT_CLOSED, 39, 20, 1, 0
+    .byte $ff
+
 .segment "CODE"
 
 ; Exact 8-bit GetValPseudoRND behaviour used by Boulder Dash I.
-.proc cave2_rnd
-    lda cave2_start
+.proc cave_rnd
+    lda cave_start
     and #$02
     beq @p1_zero
     lda #$80
@@ -61,13 +68,13 @@ cave2_commands:
 @p1_zero:
     lda #$00
 @p1_store:
-    sta cave2_p1
+    sta cave_p1
 
-    lda cave2_seed
+    lda cave_seed
     lsr a
-    sta cave2_half
+    sta cave_half
 
-    lda cave2_seed
+    lda cave_seed
     and #$01
     beq @seed_even
     lda #$80
@@ -76,130 +83,171 @@ cave2_commands:
     lda #$00
 @seed_add:
     clc
-    adc cave2_seed
+    adc cave_seed
     adc #$13
-    sta cave2_seed
+    sta cave_seed
     bcc @carry_zero
     lda #$01
     bra @carry_store
 @carry_zero:
     lda #$00
 @carry_store:
-    sta cave2_carry
+    sta cave_carry
 
-    lda cave2_start
+    lda cave_start
     clc
-    adc cave2_p1
+    adc cave_p1
     clc
-    adc cave2_half
+    adc cave_half
     clc
-    adc cave2_carry
-    sta cave2_start
+    adc cave_carry
+    sta cave_start
     rts
 .endproc
 
-.proc cave2_add40
+.proc cave_add40
     clc
-    lda cave2_ptr
+    lda cave_ptr
     adc #40
-    sta cave2_ptr
-    lda cave2_ptr+1
+    sta cave_ptr
+    lda cave_ptr+1
     adc #0
-    sta cave2_ptr+1
+    sta cave_ptr+1
     rts
 .endproc
 
-.proc cave2_inc_ptr
-    inc cave2_ptr
+.proc cave_inc_ptr
+    inc cave_ptr
     bne :+
-    inc cave2_ptr+1
+    inc cave_ptr+1
 :
     rts
 .endproc
 
-; Uses cave2_x/y/tile and may clobber X/Y.
-.proc cave2_set
+; Uses cave_x/y/tile and may clobber X/Y.
+.proc cave_set
     lda #<game_cave_state
-    sta cave2_ptr
+    sta cave_ptr
     lda #>game_cave_state
-    sta cave2_ptr+1
-    ldx cave2_y
+    sta cave_ptr+1
+    ldx cave_y
     beq @rows_done
 @rows:
-    jsr cave2_add40
+    jsr cave_add40
     dex
     bne @rows
 @rows_done:
-    ldy cave2_x
-    lda cave2_tile
-    sta (cave2_ptr),y
+    ldy cave_x
+    lda cave_tile
+    sta (cave_ptr),y
     rts
 .endproc
 
-.proc cave2_apply_commands
-    lda #<cave2_commands
-    sta cave2_cmd_ptr
-    lda #>cave2_commands
-    sta cave2_cmd_ptr+1
+.proc cave_apply_commands
 @next_command:
     ldy #0
-    lda (cave2_cmd_ptr),y
+    lda (cave_cmd_ptr),y
     cmp #$ff
     beq @done
-    sta cave2_tile
+    sta cave_tile
     iny
-    lda (cave2_cmd_ptr),y
-    sta cave2_x
+    lda (cave_cmd_ptr),y
+    sta cave_x
     iny
-    lda (cave2_cmd_ptr),y
-    sta cave2_y
+    lda (cave_cmd_ptr),y
+    sta cave_y
     iny
-    lda (cave2_cmd_ptr),y
-    sta cave2_len
+    lda (cave_cmd_ptr),y
+    sta cave_len
     iny
-    lda (cave2_cmd_ptr),y
-    sta cave2_dir
+    lda (cave_cmd_ptr),y
+    sta cave_dir
 @draw:
-    jsr cave2_set
-    lda cave2_dir
+    jsr cave_set
+    lda cave_dir
     bne @south
-    inc cave2_x
+    inc cave_x
     bra @advance
 @south:
-    inc cave2_y
+    inc cave_y
 @advance:
-    dec cave2_len
+    dec cave_len
     bne @draw
     clc
-    lda cave2_cmd_ptr
+    lda cave_cmd_ptr
     adc #5
-    sta cave2_cmd_ptr
-    lda cave2_cmd_ptr+1
+    sta cave_cmd_ptr
+    lda cave_cmd_ptr+1
     adc #0
-    sta cave2_cmd_ptr+1
+    sta cave_cmd_ptr+1
     bra @next_command
 @done:
     rts
 .endproc
 
+.proc cave_make_frame
+    ; Top/bottom steel frame.
+    lda #<game_cave_state
+    sta cave_ptr
+    lda #>game_cave_state
+    sta cave_ptr+1
+    ldy #0
+@top:
+    lda #T_WALL_STEEL
+    sta (cave_ptr),y
+    iny
+    cpy #40
+    bne @top
+
+    lda #<(game_cave_state + 880)
+    sta cave_ptr
+    lda #>(game_cave_state + 880)
+    sta cave_ptr+1
+    ldy #0
+@bottom:
+    lda #T_WALL_STEEL
+    sta (cave_ptr),y
+    iny
+    cpy #40
+    bne @bottom
+
+    ; Left/right steel frame for rows 0..22.
+    lda #<game_cave_state
+    sta cave_ptr
+    lda #>game_cave_state
+    sta cave_ptr+1
+    lda #23
+    sta cave_rows_left
+@side_row:
+    ldy #0
+    lda #T_WALL_STEEL
+    sta (cave_ptr),y
+    ldy #39
+    sta (cave_ptr),y
+    jsr cave_add40
+    dec cave_rows_left
+    bne @side_row
+    rts
+.endproc
+
 .proc game_build_cave2
-    ; Difficulty 0 header: seed $03. Random object thresholds reproduce
-    ; Empty/Boulder/Diamond/Firefly at $3c/$32/$09/$02.
+    ; Cave 2 difficulty 0: seed $03. The threshold order reproduces the
+    ; original Empty/Boulder/Diamond/Firefly probabilities $3c/$32/$09/$02.
     lda #$03
-    sta cave2_seed
-    stz cave2_start
+    sta cave_seed
+    stz cave_start
 
     lda #<(game_cave_state + 40)
-    sta cave2_ptr
+    sta cave_ptr
     lda #>(game_cave_state + 40)
-    sta cave2_ptr+1
+    sta cave_ptr+1
     lda #22
-    sta cave2_rows_left
+    sta cave_rows_left
 @rnd_row:
     lda #40
-    sta cave2_cols_left
+    sta cave_cols_left
 @rnd_col:
-    jsr cave2_rnd
+    jsr cave_rnd
     cmp #$02
     bcc @firefly
     cmp #$09
@@ -223,56 +271,69 @@ cave2_commands:
     lda #T_EMPTY
 @store_random:
     ldy #0
-    sta (cave2_ptr),y
-    jsr cave2_inc_ptr
-    dec cave2_cols_left
+    sta (cave_ptr),y
+    jsr cave_inc_ptr
+    dec cave_cols_left
     bne @rnd_col
-    dec cave2_rows_left
+    dec cave_rows_left
     bne @rnd_row
 
-    ; Top/bottom steel frame.
-    lda #<game_cave_state
-    sta cave2_ptr
-    lda #>game_cave_state
-    sta cave2_ptr+1
-    ldy #0
-@top:
-    lda #T_WALL_STEEL
-    sta (cave2_ptr),y
-    iny
-    cpy #40
-    bne @top
+    jsr cave_make_frame
+    lda #<cave2_commands
+    sta cave_cmd_ptr
+    lda #>cave2_commands
+    sta cave_cmd_ptr+1
+    jsr cave_apply_commands
+    rts
+.endproc
 
-    lda #<(game_cave_state + 880)
-    sta cave2_ptr
-    lda #>(game_cave_state + 880)
-    sta cave2_ptr+1
-    ldy #0
-@bottom:
-    lda #T_WALL_STEEL
-    sta (cave2_ptr),y
-    iny
-    cpy #40
-    bne @bottom
+.proc game_build_cave3
+    ; Cave 3 difficulty 0: seed $00. Random object thresholds from the C64
+    ; header are Brick/Boulder/Diamond/Empty = $64/$32/$09/$00.
+    stz cave_seed
+    stz cave_start
 
-    ; Left/right steel frame for rows 0..22.
-    lda #<game_cave_state
-    sta cave2_ptr
-    lda #>game_cave_state
-    sta cave2_ptr+1
-    lda #23
-    sta cave2_rows_left
-@side_row:
+    lda #<(game_cave_state + 40)
+    sta cave_ptr
+    lda #>(game_cave_state + 40)
+    sta cave_ptr+1
+    lda #22
+    sta cave_rows_left
+@rnd_row:
+    lda #40
+    sta cave_cols_left
+@rnd_col:
+    jsr cave_rnd
+    cmp #$09
+    bcc @diamond
+    cmp #$32
+    bcc @boulder
+    cmp #$64
+    bcc @brick
+    lda #T_SOIL
+    bra @store_random
+@diamond:
+    lda #T_DIAMOND
+    bra @store_random
+@boulder:
+    lda #T_BOULDER
+    bra @store_random
+@brick:
+    lda #T_WALL_STONE
+@store_random:
     ldy #0
-    lda #T_WALL_STEEL
-    sta (cave2_ptr),y
-    ldy #39
-    sta (cave2_ptr),y
-    jsr cave2_add40
-    dec cave2_rows_left
-    bne @side_row
+    sta (cave_ptr),y
+    jsr cave_inc_ptr
+    dec cave_cols_left
+    bne @rnd_col
+    dec cave_rows_left
+    bne @rnd_row
 
-    ; Apply CaveData_02_Var after the steel frame, like the C64 code.
-    jsr cave2_apply_commands
+    jsr cave_make_frame
+    lda #<cave3_commands
+    sta cave_cmd_ptr
+    lda #>cave3_commands
+    sta cave_cmd_ptr+1
+    jsr cave_apply_commands
     rts
 .endproc
