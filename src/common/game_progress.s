@@ -8,20 +8,24 @@
 .import game_pad_pressed
 .import game_flow_init
 .import game_flow_restart_game
+.import game_flow_next_cave
 .import game_flow_lose_life
 .import game_flow_add_time_bonus
 .import game_game_over
+.import game_current_cave
 
 .export game_progress_init
 .export game_progress_tick
 .export game_cave_complete
 .export game_cave_time
 
-CAVE1_TIME_SECONDS = 150
-CAVE1_EXIT_X       = $26
-CAVE1_EXIT_Y       = $12
-FRAMES_PER_SECOND  = 60
-DEATH_WAIT_FRAMES  = 60
+CAVE_TIME_SECONDS = 150
+CAVE1_EXIT_X      = $26
+CAVE1_EXIT_Y      = $12
+CAVE2_EXIT_X      = $12
+CAVE2_EXIT_Y      = $16
+FRAMES_PER_SECOND = 60
+DEATH_WAIT_FRAMES = 60
 
 .segment "BSS"
 game_progress_frame:      .res 1
@@ -35,7 +39,7 @@ game_cave_time:           .res 1
     stz game_progress_frame
     stz game_progress_death_wait
     stz game_cave_complete
-    lda #CAVE1_TIME_SECONDS
+    lda #CAVE_TIME_SECONDS
     sta game_cave_time
     rts
 .endproc
@@ -50,8 +54,6 @@ game_cave_time:           .res 1
     lda game_game_over
     beq @not_game_over
 
-    ; C64-style new-game restart point: after the final life, START begins a
-    ; fresh game with three lives, zero score, and Cave 1 restored.
     lda game_pad_pressed
     and #PAD_START
     beq @done
@@ -77,30 +79,52 @@ game_cave_time:           .res 1
 
 @check_exit:
     stz game_progress_death_wait
-
     lda game_exit_open
     beq @count_time
+
+    lda game_current_cave
+    cmp #2
+    beq @check_cave2_exit
+
     lda game_player_x
     cmp #CAVE1_EXIT_X
     bne @count_time
     lda game_player_y
     cmp #CAVE1_EXIT_Y
     bne @count_time
+    bra @cave_finished
 
+@check_cave2_exit:
+    lda game_player_x
+    cmp #CAVE2_EXIT_X
+    bne @count_time
+    lda game_player_y
+    cmp #CAVE2_EXIT_Y
+    bne @count_time
+
+@cave_finished:
+    lda game_cave_time
+    jsr game_flow_add_time_bonus
+    stz game_cave_time
+
+    lda game_current_cave
+    cmp #1
+    bne @final_hold
+
+    ; Continue directly into Cave 2. Intermission/status presentation can be
+    ; layered on later without changing the underlying C64 cave progression.
+    jsr game_flow_next_cave
+    jsr game_progress_reset_attempt
+    rts
+
+@final_hold:
     lda #1
     sta game_cave_complete
     sta game_video_dirty
     stz game_player_alive
-
-    lda game_cave_time
-    jsr game_flow_add_time_bonus
-    stz game_cave_time
     rts
 
 @hold_result:
-    ; Cave-complete state is deliberately stable now. The old benchmark/demo
-    ; overlay is gone; the next cave transition will be wired after Cave 2's
-    ; original geometry is represented safely in the shared cave buffer.
     rts
 
 @count_time:
