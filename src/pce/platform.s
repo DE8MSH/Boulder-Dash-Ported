@@ -54,6 +54,7 @@ pce_addr_lo:       .res 1
 pce_addr_hi:       .res 1
 pce_addr_buf:      .res 2
 pce_dirty_buf:     .res 4
+pce_strip_count:   .res 1
 
 .segment "CODE"
 
@@ -66,10 +67,10 @@ pce_dirty_buf:     .res 4
     rts
 .endproc
 
-; Upload one logical 16x16 cave object (2x2 BAT cells) from the shared
-; 32x28 render buffer. Runtime VDC addresses are sent through TIA after ST0,
-; matching the VDC access path that is known to work reliably in Mednafen.
+; Upload one logical 16x16 cave object (2x2 BAT cells) from the current
+; shared viewport into its physical position in the 32x32 circular BAT.
 .proc pce_upload_object
+    ; Source coordinates are relative to the current 16x14 render buffer.
     lda pce_obj_x
     sec
     sbc game_view_x
@@ -108,23 +109,21 @@ pce_dirty_buf:     .res 4
     adc #$00
     sta pce_zp_src+1
 
-    ; BAT word address = rel_y*64 + rel_x*2.
-    stz pce_addr_lo
-    stz pce_addr_hi
-    ldx pce_rel_y
-    beq @addr_rows_done
-@addr_add_row:
-    clc
-    lda pce_addr_lo
-    adc #$40
+    ; Physical BAT address is based on world object coordinates modulo the
+    ; 16x16 logical-object ring: ((y&15)*2)*32 + ((x&15)*2).
+    lda pce_obj_y
+    and #$0f
     sta pce_addr_lo
-    lda pce_addr_hi
-    adc #$00
-    sta pce_addr_hi
+    stz pce_addr_hi
+    ldx #$06
+@addr_shift_y:
+    asl pce_addr_lo
+    rol pce_addr_hi
     dex
-    bne @addr_add_row
-@addr_rows_done:
-    lda pce_rel_x
+    bne @addr_shift_y
+
+    lda pce_obj_x
+    and #$0f
     asl a
     clc
     adc pce_addr_lo
@@ -133,7 +132,7 @@ pce_dirty_buf:     .res 4
     adc #$00
     sta pce_addr_hi
 
-    ; Top two character cells (4 bytes / 2 BAT words).
+    ; Top two character cells.
     ldy #$00
     lda (pce_zp_src),y
     sta pce_dirty_buf
@@ -156,8 +155,7 @@ pce_dirty_buf:     .res 4
     st0 #VDC_DATA
     tia pce_dirty_buf, VDC_DATA_L, 4
 
-    ; Bottom two character cells are one 32-cell BAT row lower and 64 source
-    ; bytes later.
+    ; Bottom two cells are one 32-cell BAT row lower and 64 source bytes later.
     clc
     lda pce_zp_src
     adc #$40
@@ -172,6 +170,7 @@ pce_dirty_buf:     .res 4
     sta pce_addr_lo
     lda pce_addr_hi
     adc #$00
+    and #$03
     sta pce_addr_hi
 
     ldy #$00
@@ -195,6 +194,99 @@ pce_dirty_buf:     .res 4
     tia pce_addr_buf, VDC_DATA_L, 2
     st0 #VDC_DATA
     tia pce_dirty_buf, VDC_DATA_L, 4
+    rts
+.endproc
+
+.proc pce_set_scroll
+    ; BXR = view_x * 16 pixels.
+    lda game_view_x
+    sta pce_addr_lo
+    stz pce_addr_hi
+    ldx #$04
+@x_shift:
+    asl pce_addr_lo
+    rol pce_addr_hi
+    dex
+    bne @x_shift
+    lda pce_addr_lo
+    sta pce_addr_buf
+    lda pce_addr_hi
+    sta pce_addr_buf+1
+    st0 #VDC_BXR
+    tia pce_addr_buf, VDC_DATA_L, 2
+
+    ; BYR = view_y * 16 pixels.
+    lda game_view_y
+    sta pce_addr_lo
+    stz pce_addr_hi
+    ldx #$04
+@y_shift:
+    asl pce_addr_lo
+    rol pce_addr_hi
+    dex
+    bne @y_shift
+    lda pce_addr_lo
+    sta pce_addr_buf
+    lda pce_addr_hi
+    sta pce_addr_buf+1
+    st0 #VDC_BYR
+    tia pce_addr_buf, VDC_DATA_L, 2
+    rts
+.endproc
+
+.proc pce_upload_horizontal_edge
+    lda game_view_x
+    cmp pce_last_view_x
+    beq @done
+    bcc @left_edge
+
+    ; Scrolling right: upload the newly exposed rightmost logical column.
+    clc
+    adc #15
+    bra @have_x
+@left_edge:
+    ; Scrolling left: upload the newly exposed leftmost logical column.
+    lda game_view_x
+@have_x:
+    sta pce_obj_x
+    lda game_view_y
+    sta pce_obj_y
+    lda #14
+    sta pce_strip_count
+@loop:
+    jsr pce_upload_object
+    inc pce_obj_y
+    dec pce_strip_count
+    bne @loop
+@done:
+    rts
+.endproc
+
+.proc pce_upload_vertical_edge
+    lda game_view_y
+    cmp pce_last_view_y
+    beq @done
+    bcc @top_edge
+
+    ; Scrolling down: upload newly exposed bottom logical row.
+    clc
+    adc #13
+    bra @have_y
+@top_edge:
+    ; Scrolling up: upload newly exposed top logical row.
+    lda game_view_y
+@have_y:
+    sta pce_obj_y
+    lda game_view_x
+    sta pce_obj_x
+    lda #16
+    sta pce_strip_count
+@loop:
+    jsr pce_upload_object
+    inc pce_obj_x
+    dec pce_strip_count
+    bne @loop
+@done:
     rts
 .endproc
 
@@ -246,7 +338,7 @@ pce_dirty_buf:     .res 4
     st0 #VDC_DATA
     tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
 
-    ; Clear complete 32x32 BAT with tile $40 before copying visible viewport.
+    ; Initial 32x32 BAT setup may be done while display is still disabled.
     st0 #VDC_MAWR
     st1 #$00
     st2 #$00
@@ -299,7 +391,7 @@ pce_dirty_buf:     .res 4
     lda game_view_y
     sta pce_last_view_y
 
-    ; Reset the controller/multitap scan chain once at startup.
+    ; Reset controller scan chain.
     lda #$01
     sta JOYPAD
     lda #$03
@@ -310,9 +402,6 @@ pce_dirty_buf:     .res 4
 .endproc
 
 .proc platform_wait_frame
-    ; Reading VDC status clears the latched event flags. Discard any stale
-    ; VBlank flag left behind by a previous upload, then wait for a fresh one.
-    lda VDC_STATUS
 @wait_vblank:
     lda VDC_STATUS
     and #$20
@@ -406,16 +495,7 @@ pce_dirty_buf:     .res 4
 .endproc
 
 .proc platform_video_begin
-    ; If the logical viewport did not move, only two logical objects changed:
-    ; Rockford's old cell and his new cell. Update those 16 BAT bytes total
-    ; instead of rewriting the complete 1792-byte visible BAT.
-    lda game_view_x
-    cmp pce_last_view_x
-    bne @full
-    lda game_view_y
-    cmp pce_last_view_y
-    bne @full
-
+    ; Always update Rockford's old and new cells in the circular BAT.
     lda pce_last_player_x
     sta pce_obj_x
     lda pce_last_player_y
@@ -427,14 +507,13 @@ pce_dirty_buf:     .res 4
     lda game_player_y
     sta pce_obj_y
     jsr pce_upload_object
-    bra @remember
 
-@full:
-    ; Scrolling still needs a full viewport refresh for now, but keep BG on.
-    ; A later ring-buffer renderer can remove this last large transfer too.
-    jsr pce_upload_cave
+    ; A scrolling viewport only exposes two new character columns/rows. Fill
+    ; those strips instead of ever doing a runtime full-BAT transfer.
+    jsr pce_upload_horizontal_edge
+    jsr pce_upload_vertical_edge
+    jsr pce_set_scroll
 
-@remember:
     lda game_player_x
     sta pce_last_player_x
     lda game_player_y
