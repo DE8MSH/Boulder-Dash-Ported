@@ -40,14 +40,18 @@ PCE_PATTERN_WORD = $0400
 PCE_PATTERN_TILE = $0040
 CAVE_RENDER_BYTES = 32 * 28 * 2
 
-; Canonical C64 RGB approximations converted to HuC6260 9-bit GRB.
-; Cave 1: $08 orange, $0b dark gray, $09 brown.
-C64_ORANGE_PCE   = $a1
-C64_DARKGRAY_PCE = $92
+; VIC-II PAL reference colors (Pepto palette) quantized to HuC6260 9-bit GRB
+; (bits 8..6 green, 5..3 red, 2..0 blue).
+; $08 orange  #6F4F25 -> $099
+; $09 brown   #433900 -> $090
+; $0A lt red  #9A6759 -> $0E2
+; $0B dk gray #444444 -> $092
+; $04 purple  #6F3D86 -> $09C
+C64_ORANGE_PCE   = $99
 C64_BROWN_PCE    = $90
-; Cave 2: $0a light red, $04 purple, $09 brown.
-C64_LIGHTRED_PCE = $eb
-C64_PURPLE_PCE   = $a4
+C64_LIGHTRED_PCE = $e2
+C64_DARKGRAY_PCE = $92
+C64_PURPLE_PCE   = $9c
 
 ; HuC6280 timer runs at ~6.99 kHz. Reload $74 gives 117 ticks,
 ; approximately 59.75 Hz, close to the PCE display rate.
@@ -100,12 +104,16 @@ pce_last_vdc_status:     .res 1
 
     stz VCE_ADDR_L
     stz VCE_ADDR_H
-    stz VCE_DATA_L             ; C64 background black
+    stz VCE_DATA_L             ; VIC-II D021 cave background black
     stz VCE_DATA_H
 
     lda game_current_cave
     cmp #2
     beq @cave2
+    cmp #3
+    beq @cave3
+
+    ; Cave 1: D022=$08, D023=$0b, Color RAM=$09.
     lda #C64_ORANGE_PCE
     sta VCE_DATA_L
     stz VCE_DATA_H
@@ -116,11 +124,26 @@ pce_last_vdc_status:     .res 1
     sta VCE_DATA_L
     stz VCE_DATA_H
     rts
+
 @cave2:
+    ; Cave 2: D022=$0a, D023=$04, Color RAM=$09.
     lda #C64_LIGHTRED_PCE
     sta VCE_DATA_L
     stz VCE_DATA_H
     lda #C64_PURPLE_PCE
+    sta VCE_DATA_L
+    stz VCE_DATA_H
+    lda #C64_BROWN_PCE
+    sta VCE_DATA_L
+    stz VCE_DATA_H
+    rts
+
+@cave3:
+    ; Cave 3: D022=$09, D023=$08, Color RAM=$09.
+    lda #C64_BROWN_PCE
+    sta VCE_DATA_L
+    stz VCE_DATA_H
+    lda #C64_ORANGE_PCE
     sta VCE_DATA_L
     stz VCE_DATA_H
     lda #C64_BROWN_PCE
@@ -448,7 +471,7 @@ pce_last_vdc_status:     .res 1
 .endproc
 
 .proc platform_video_begin
-    ; Apply the C64 cave palette when advancing caves, then update the BAT.
+    ; Apply the VIC-II cave palette when advancing caves, then update the BAT.
     jsr pce_load_cave_palette
 
     ; Physics may change many cave cells in one scan. Use a full BAT refresh for
