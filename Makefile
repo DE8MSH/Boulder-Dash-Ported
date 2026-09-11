@@ -23,7 +23,9 @@ assets: check
 	$(PYTHON) scripts/convert-charset.py B1_ChrS.asm --limit 64 \
 		--snes-out build/generated/snes/charset.inc \
 		--pce-out build/generated/pce/charset.inc
-	$(PYTHON) scripts/generate-cave1.py build/generated/common/cave1.inc
+	$(PYTHON) scripts/generate-cave1.py \
+		build/generated/common/cave1.inc \
+		build/generated/pce/cave1_bat.inc
 
 snes-obj: assets
 	@mkdir -p build/snes
