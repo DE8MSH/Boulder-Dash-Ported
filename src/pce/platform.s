@@ -105,21 +105,33 @@ pce_raw_buttons: .res 1
     st0 #VDC_DATA
     tia pce_cave_bat, VDC_DATA_L, pce_cave_bat_bytes
 
+    ; Cave 1 C64 colors are $08/$0b/$09 (orange/dark gray/brown).
+    ; Converted multicolor pixels use palette roles 0..3:
+    ;   0 background black, 1 orange, 2 dark gray, 3 brown.
+    ; PCE values use 9-bit GRB and are close C64 approximations.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
-    lda #$03
+    ; color 0: black = $000
+    stz VCE_DATA_L
+    stz VCE_DATA_H
+    ; color 1: orange = $0e9
+    lda #$e9
     sta VCE_DATA_L
     stz VCE_DATA_H
-    lda #$ff
+    ; color 2: dark gray = $0db
+    lda #$db
     sta VCE_DATA_L
-    lda #$01
-    sta VCE_DATA_H
+    stz VCE_DATA_H
+    ; color 3: brown = $0a0
+    lda #$a0
+    sta VCE_DATA_L
+    stz VCE_DATA_H
 
+    ; Backdrop/border black.
     stz VCE_ADDR_L
     lda #$01
     sta VCE_ADDR_H
-    lda #$03
-    sta VCE_DATA_L
+    stz VCE_DATA_L
     stz VCE_DATA_H
 
     st0 #VDC_CR
