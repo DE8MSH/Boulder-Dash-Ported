@@ -7,6 +7,21 @@ import sys
 
 src = Path(sys.argv[1]).read_text()
 
+# The PCE keeps physical HuCard bank $01 permanently mapped through MPR6 at
+# $C000-$DFFF during gameplay. Put the sizeable strategy code there instead of
+# consuming the fixed boot/vector bank. SNES keeps the routine in normal CODE.
+old_segment = '.segment "CODE"\n'
+new_segment = (
+    '.ifdef PCE_AUTOPLAY_BANK\n'
+    '.segment "BANK1_CODE"\n'
+    '.else\n'
+    '.segment "CODE"\n'
+    '.endif\n'
+)
+if old_segment not in src:
+    raise SystemExit("autoplayer CODE segment marker not found")
+src = src.replace(old_segment, new_segment, 1)
+
 inverse = {
     "beq": "bne",
     "bne": "beq",
