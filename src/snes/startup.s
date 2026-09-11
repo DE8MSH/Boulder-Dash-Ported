@@ -64,3 +64,7 @@
     .word default_irq
     .word reset
     .word default_irq
+
+; Keep the fourth LoROM bank physically present as reserved expansion space.
+.segment "ROM3_FILL"
+    .byte $00
