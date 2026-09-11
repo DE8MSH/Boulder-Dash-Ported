@@ -16,7 +16,11 @@ VCE_ADDR_L  = $0402
 VCE_ADDR_H  = $0403
 VCE_DATA_L  = $0404
 VCE_DATA_H  = $0405
+TIMER_RELOAD= $0C00
+TIMER_CTRL  = $0C01
 JOYPAD      = $1000
+IRQ_MASK    = $1402
+IRQ_STATUS  = $1403
 
 VDC_MAWR = $00
 VDC_DATA = $02
@@ -33,6 +37,11 @@ VDC_VCR  = $0E
 PCE_PATTERN_WORD = $0400
 PCE_PATTERN_TILE = $0040
 CAVE_RENDER_BYTES = 32 * 28 * 2
+
+; HuC6280 timer runs at ~6.99 kHz. Reload $74 gives 117 ticks,
+; approximately 59.75 Hz, close to the PCE display rate.
+PCE_TIMER_RELOAD = $74
+PCE_TIMER_IRQ    = $04
 
 .segment "ZEROPAGE"
 pce_zp_src: .res 2
@@ -203,6 +212,19 @@ pce_last_vdc_status:     .res 1
     stz pce_last_vdc_status
     stz VCE_CTRL
 
+    ; Use the CPU timer purely as a polled pacing source. SEI remains set, so
+    ; no timer IRQ handler is required; the request bit is acknowledged by
+    ; writing IRQ_STATUS after every tick.
+    stz TIMER_CTRL
+    lda #PCE_TIMER_RELOAD
+    sta TIMER_RELOAD
+    lda IRQ_MASK
+    and #$fb
+    sta IRQ_MASK
+    stz IRQ_STATUS
+    lda #$01
+    sta TIMER_CTRL
+
     st0 #VDC_CR
     st1 #$00
     st2 #$00
@@ -297,20 +319,11 @@ pce_last_vdc_status:     .res 1
 .endproc
 
 .proc platform_wait_frame
-    stz pce_wait_lo
-    lda #$40
-    sta pce_wait_hi
-@wait_vblank:
-    lda VDC_STATUS
-    sta pce_last_vdc_status
-    and #$20
-    bne @done
-    dec pce_wait_lo
-    bne @wait_vblank
-    dec pce_wait_hi
-    bne @wait_vblank
-    inc pce_vblank_timeout_count
-@done:
+@wait_timer:
+    lda IRQ_STATUS
+    and #PCE_TIMER_IRQ
+    beq @wait_timer
+    stz IRQ_STATUS
     rts
 .endproc
 
