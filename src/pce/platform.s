@@ -3,6 +3,10 @@
 .include "../common/platform.inc"
 
 .import game_cave_render
+.import game_player_x
+.import game_player_y
+.import game_view_x
+.import game_view_y
 
 VDC_STATUS  = $0000
 VDC_DATA_L  = $0002
@@ -30,10 +34,26 @@ PCE_PATTERN_WORD = $0400
 PCE_PATTERN_TILE = $0040
 CAVE_RENDER_BYTES = 32 * 28 * 2
 
+.segment "ZEROPAGE"
+pce_zp_src: .res 2
+
 .segment "BSS"
 pad_result:      .res 1
 pce_raw_dpad:    .res 1
 pce_raw_buttons: .res 1
+
+pce_last_player_x: .res 1
+pce_last_player_y: .res 1
+pce_last_view_x:   .res 1
+pce_last_view_y:   .res 1
+pce_obj_x:         .res 1
+pce_obj_y:         .res 1
+pce_rel_x:         .res 1
+pce_rel_y:         .res 1
+pce_addr_lo:       .res 1
+pce_addr_hi:       .res 1
+pce_addr_buf:      .res 2
+pce_dirty_buf:     .res 4
 
 .segment "CODE"
 
@@ -43,6 +63,138 @@ pce_raw_buttons: .res 1
     st2 #$00
     st0 #VDC_DATA
     tia game_cave_render, VDC_DATA_L, CAVE_RENDER_BYTES
+    rts
+.endproc
+
+; Upload one logical 16x16 cave object (2x2 BAT cells) from the shared
+; 32x28 render buffer. Runtime VDC addresses are sent through TIA after ST0,
+; matching the VDC access path that is known to work reliably in Mednafen.
+.proc pce_upload_object
+    lda pce_obj_x
+    sec
+    sbc game_view_x
+    sta pce_rel_x
+    lda pce_obj_y
+    sec
+    sbc game_view_y
+    sta pce_rel_y
+
+    ; Source pointer = game_cave_render + rel_y*128 + rel_x*4.
+    lda #<game_cave_render
+    sta pce_zp_src
+    lda #>game_cave_render
+    sta pce_zp_src+1
+
+    ldx pce_rel_y
+    beq @src_rows_done
+@src_add_row:
+    clc
+    lda pce_zp_src
+    adc #$80
+    sta pce_zp_src
+    lda pce_zp_src+1
+    adc #$00
+    sta pce_zp_src+1
+    dex
+    bne @src_add_row
+@src_rows_done:
+    lda pce_rel_x
+    asl a
+    asl a
+    clc
+    adc pce_zp_src
+    sta pce_zp_src
+    lda pce_zp_src+1
+    adc #$00
+    sta pce_zp_src+1
+
+    ; BAT word address = rel_y*64 + rel_x*2.
+    stz pce_addr_lo
+    stz pce_addr_hi
+    ldx pce_rel_y
+    beq @addr_rows_done
+@addr_add_row:
+    clc
+    lda pce_addr_lo
+    adc #$40
+    sta pce_addr_lo
+    lda pce_addr_hi
+    adc #$00
+    sta pce_addr_hi
+    dex
+    bne @addr_add_row
+@addr_rows_done:
+    lda pce_rel_x
+    asl a
+    clc
+    adc pce_addr_lo
+    sta pce_addr_lo
+    lda pce_addr_hi
+    adc #$00
+    sta pce_addr_hi
+
+    ; Top two character cells (4 bytes / 2 BAT words).
+    ldy #$00
+    lda (pce_zp_src),y
+    sta pce_dirty_buf
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+1
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+2
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+3
+
+    lda pce_addr_lo
+    sta pce_addr_buf
+    lda pce_addr_hi
+    sta pce_addr_buf+1
+    st0 #VDC_MAWR
+    tia pce_addr_buf, VDC_DATA_L, 2
+    st0 #VDC_DATA
+    tia pce_dirty_buf, VDC_DATA_L, 4
+
+    ; Bottom two character cells are one 32-cell BAT row lower and 64 source
+    ; bytes later.
+    clc
+    lda pce_zp_src
+    adc #$40
+    sta pce_zp_src
+    lda pce_zp_src+1
+    adc #$00
+    sta pce_zp_src+1
+
+    clc
+    lda pce_addr_lo
+    adc #$20
+    sta pce_addr_lo
+    lda pce_addr_hi
+    adc #$00
+    sta pce_addr_hi
+
+    ldy #$00
+    lda (pce_zp_src),y
+    sta pce_dirty_buf
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+1
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+2
+    iny
+    lda (pce_zp_src),y
+    sta pce_dirty_buf+3
+
+    lda pce_addr_lo
+    sta pce_addr_buf
+    lda pce_addr_hi
+    sta pce_addr_buf+1
+    st0 #VDC_MAWR
+    tia pce_addr_buf, VDC_DATA_L, 2
+    st0 #VDC_DATA
+    tia pce_dirty_buf, VDC_DATA_L, 4
     rts
 .endproc
 
@@ -138,17 +290,29 @@ pce_raw_buttons: .res 1
     st1 #$88
     st2 #$00
 
+    lda game_player_x
+    sta pce_last_player_x
+    lda game_player_y
+    sta pce_last_player_y
+    lda game_view_x
+    sta pce_last_view_x
+    lda game_view_y
+    sta pce_last_view_y
+
     ; Reset the controller/multitap scan chain once at startup.
-    lda #$01            ; SEL=1, CLR=0
+    lda #$01
     sta JOYPAD
-    lda #$03            ; SEL=1, CLR=1
+    lda #$03
     sta JOYPAD
-    lda #$01            ; SEL=1, CLR=0
+    lda #$01
     sta JOYPAD
     rts
 .endproc
 
 .proc platform_wait_frame
+    ; Reading VDC status clears the latched event flags. Discard any stale
+    ; VBlank flag left behind by a previous upload, then wait for a fresh one.
+    lda VDC_STATUS
 @wait_vblank:
     lda VDC_STATUS
     and #$20
@@ -157,17 +321,12 @@ pce_raw_buttons: .res 1
 .endproc
 
 .proc platform_read_pad
-    ; HuC6280 controller protocol: pulse CLR once per complete scan, keep SEL
-    ; high for the direction nibble, then drive SEL low for I/II/Select/Run.
-    ; The return lines are active-low.
-    lda #$01            ; SEL=1, CLR=0
+    lda #$01
     sta JOYPAD
-    lda #$03            ; SEL=1, CLR=1 -> reset to pad 1
+    lda #$03
     sta JOYPAD
-    lda #$01            ; SEL=1, CLR=0 -> directions
+    lda #$01
     sta JOYPAD
-
-    ; Give the pad enough settling time after changing CLR/SEL.
     pha
     pla
     nop
@@ -177,7 +336,7 @@ pce_raw_buttons: .res 1
     eor #$0f
     sta pce_raw_dpad
 
-    lda #$00            ; SEL=0, CLR=0 -> buttons
+    lda #$00
     sta JOYPAD
     pha
     pla
@@ -190,8 +349,7 @@ pce_raw_buttons: .res 1
 
     stz pad_result
 
-    ; Direction nibble with SEL=1:
-    ; d3 Left, d2 Down, d1 Right, d0 Up.
+    ; Direction nibble: d3 Left, d2 Down, d1 Right, d0 Up.
     lda pce_raw_dpad
     and #%00001000
     beq :+
@@ -221,8 +379,7 @@ pce_raw_buttons: .res 1
     sta pad_result
 :
 
-    ; Button nibble with SEL=0:
-    ; d3 Run, d2 Select, d1 II, d0 I.
+    ; Button nibble: d3 Run, d2 Select, d1 II, d0 I.
     lda pce_raw_buttons
     and #%00000001
     beq :+
@@ -249,16 +406,43 @@ pce_raw_buttons: .res 1
 .endproc
 
 .proc platform_video_begin
-    ; Runtime BAT changes are much larger than one VBlank. Keep BG disabled
-    ; for this one dirty upload so CPU VRAM writes are deterministic, then
-    ; restore the normal BG+VBlank control value.
-    st0 #VDC_CR
-    st1 #$08
-    st2 #$00
+    ; If the logical viewport did not move, only two logical objects changed:
+    ; Rockford's old cell and his new cell. Update those 16 BAT bytes total
+    ; instead of rewriting the complete 1792-byte visible BAT.
+    lda game_view_x
+    cmp pce_last_view_x
+    bne @full
+    lda game_view_y
+    cmp pce_last_view_y
+    bne @full
+
+    lda pce_last_player_x
+    sta pce_obj_x
+    lda pce_last_player_y
+    sta pce_obj_y
+    jsr pce_upload_object
+
+    lda game_player_x
+    sta pce_obj_x
+    lda game_player_y
+    sta pce_obj_y
+    jsr pce_upload_object
+    bra @remember
+
+@full:
+    ; Scrolling still needs a full viewport refresh for now, but keep BG on.
+    ; A later ring-buffer renderer can remove this last large transfer too.
     jsr pce_upload_cave
-    st0 #VDC_CR
-    st1 #$88
-    st2 #$00
+
+@remember:
+    lda game_player_x
+    sta pce_last_player_x
+    lda game_player_y
+    sta pce_last_player_y
+    lda game_view_x
+    sta pce_last_view_x
+    lda game_view_y
+    sta pce_last_view_y
     rts
 .endproc
 
