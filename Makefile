@@ -3,7 +3,7 @@ LD65 ?= ld65
 PYTHON ?= python3
 MEDNAFEN ?= mednafen
 
-.PHONY: all check check-emulator snes-obj pce-obj snes-rom pce-rom verify run-snes run-pce run-both clean
+.PHONY: all check check-emulator assets snes-obj pce-obj snes-rom pce-rom verify run-snes run-pce run-both clean
 
 all: snes-rom pce-rom
 
@@ -11,21 +11,27 @@ check:
 	@command -v $(CA65) >/dev/null || (echo "error: ca65 not found; install cc65" && exit 1)
 	@command -v $(LD65) >/dev/null || (echo "error: ld65 not found; install cc65" && exit 1)
 	@command -v $(PYTHON) >/dev/null || (echo "error: python3 not found" && exit 1)
-	@echo "ca65: $$($(CA65) --version 2>&1 | head -n 1)"
-	@echo "ld65: $$($(LD65) --version 2>&1 | head -n 1)"
+	@echo "ca65: $$($(CA65) --version 2>&1 | sed -n '1p')"
+	@echo "ld65: $$($(LD65) --version 2>&1 | sed -n '1p')"
 
 check-emulator:
 	@command -v $(MEDNAFEN) >/dev/null || (echo "error: mednafen not found; install with: sudo apt install mednafen" && exit 1)
-	@echo "mednafen: $$($(MEDNAFEN) -help 2>&1 | head -n 1 || true)"
+	@echo "mednafen: $$($(MEDNAFEN) -help 2>&1 | sed -n '1p' || true)"
 
-snes-obj: check
+assets: check
+	@mkdir -p build/generated/snes build/generated/pce
+	$(PYTHON) scripts/convert-charset.py B1_ChrS.asm --limit 64 \
+		--snes-out build/generated/snes/charset.inc \
+		--pce-out build/generated/pce/charset.inc
+
+snes-obj: assets
 	@mkdir -p build/snes
 	cd src/common && $(CA65) --cpu 65816 game.s -o ../../build/snes/game.o
 	cd src/snes && $(CA65) platform.s -o ../../build/snes/platform.o
 	cd src/snes && $(CA65) startup.s -o ../../build/snes/startup.o
 	@echo "built SNES objects (65C816)"
 
-pce-obj: check
+pce-obj: assets
 	@mkdir -p build/pce
 	cd src/common && $(CA65) --cpu huc6280 game.s -o ../../build/pce/game.o
 	cd src/pce && $(CA65) platform.s -o ../../build/pce/platform.o
@@ -54,10 +60,12 @@ run-pce: pce-rom check-emulator
 	$(MEDNAFEN) build/pce/boulder-dash.pce
 
 run-both: all check-emulator
-	@echo "Starting SNES and PC Engine ROMs in separate Mednafen processes..."
-	@$(MEDNAFEN) build/snes/boulder-dash.sfc >/tmp/boulder-dash-snes-mednafen.log 2>&1 & \
-	$(MEDNAFEN) build/pce/boulder-dash.pce >/tmp/boulder-dash-pce-mednafen.log 2>&1 & \
-	wait
+	@echo "Starting SNES and PC Engine simultaneously in separate Mednafen processes..."
+	@nohup $(MEDNAFEN) build/snes/boulder-dash.sfc >/tmp/boulder-dash-snes-mednafen.log 2>&1 & \
+	 echo "SNES Mednafen PID: $$!"; \
+	 nohup $(MEDNAFEN) build/pce/boulder-dash.pce >/tmp/boulder-dash-pce-mednafen.log 2>&1 & \
+	 echo "PCE  Mednafen PID: $$!"; \
+	 echo "Logs: /tmp/boulder-dash-{snes,pce}-mednafen.log"
 
 clean:
 	rm -rf build
