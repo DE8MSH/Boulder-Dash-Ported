@@ -9,7 +9,7 @@ fi
 . /etc/os-release
 
 echo "Detected: ${PRETTY_NAME:-unknown Linux}"
-echo "Installing local build dependencies for SNES + PC Engine ports..."
+echo "Installing local build + emulator dependencies for SNES + PC Engine ports..."
 
 sudo apt-get update
 sudo apt-get install -y \
@@ -17,14 +17,21 @@ sudo apt-get install -y \
     make \
     cc65 \
     git \
-    python3
+    python3 \
+    mednafen
 
 echo
 printf 'ca65: '
-ca65 --version 2>&1 | head -n 1
+ca65 --version 2>&1 | sed -n '1p'
 printf 'ld65: '
-ld65 --version 2>&1 | head -n 1
+ld65 --version 2>&1 | sed -n '1p'
+printf 'mednafen: '
+mednafen -help 2>&1 | sed -n '1p' || true
 
 echo
-echo "Toolchain ready. Build both ports with:"
-echo "  make"
+echo "Toolchain ready."
+echo "Build both ports: make"
+echo "Verify both ROMs: make verify"
+echo "Run SNES: make run-snes"
+echo "Run PC Engine: make run-pce"
+echo "Run both: make run-both"
