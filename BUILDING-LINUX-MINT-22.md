@@ -25,7 +25,7 @@ The important tools are:
 - `ca65` — assembler, used with the 65816 target for SNES and HuC6280 target for PC Engine
 - `ld65` — linker used to create the cartridge ROM images
 - `make` — local build driver
-- `python3` — reserved for deterministic asset conversion scripts (C64 charset/cave data -> console-native data)
+- `python3` — deterministic ROM checks now, asset conversion later
 
 ## Build both ports
 
@@ -44,6 +44,25 @@ build/snes/boulder-dash.map
 build/pce/boulder-dash.pce
 build/pce/boulder-dash.map
 ```
+
+The current bootstrap initializes video hardware and should show a deterministic dark-blue backdrop on both targets. That is intentional: it proves the reset, memory map, video initialization and frame loop before C64 character data is converted.
+
+## Build and verify both ROMs
+
+```sh
+make clean
+make verify
+```
+
+`make verify` runs `scripts/check-roms.py` locally. It checks:
+
+- SNES ROM size is exactly 32 KiB
+- SNES LoROM header/title bytes are present
+- SNES reset vector points into linked ROM code
+- PC Engine ROM size is exactly 8 KiB
+- PC Engine reset vector points into linked ROM code
+
+No emulator, network access, cloud service or CI runner is required for these checks.
 
 ## Build one target
 
@@ -72,13 +91,19 @@ make pce-obj
 make check
 ```
 
-This checks that both `ca65` and `ld65` are installed and prints their versions.
+This checks that `ca65`, `ld65` and `python3` are installed and prints assembler/linker versions.
+
+## Emulator smoke test
+
+After `make verify`, load the generated ROMs in your preferred SNES and PC Engine emulators. At this milestone the expected result is a stable dark-blue screen; there is deliberately no Boulder Dash artwork yet.
+
+If a target stays black, resets repeatedly or fails to boot, keep the generated `.map` file and emulator/debugger log. Those two files are the most useful inputs for fixing the startup path.
 
 ## Build philosophy
 
 All required build steps must run locally on Linux Mint 22. Do not require GitHub Actions, cloud build services, Docker, Wine, or a Windows-only assembler.
 
-Later asset conversion tools should be implemented as portable Python 3 scripts so the same `make` invocation continues to build both ports on Linux Mint 22.
+Asset conversion tools are implemented as portable Python 3 scripts so the same `make` invocation can continue to build both ports on Linux Mint 22.
 
 ## Audio
 
