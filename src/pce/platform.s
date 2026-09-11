@@ -7,6 +7,7 @@
 .import game_player_y
 .import game_view_x
 .import game_view_y
+.import game_video_full_dirty
 
 VDC_STATUS  = $0000
 VDC_DATA_L  = $0002
@@ -54,8 +55,6 @@ pce_addr_hi:       .res 1
 pce_addr_buf:      .res 2
 pce_dirty_buf:     .res 4
 
-; VBlank timeout diagnostics kept internally so a missed event can never
-; hard-lock the game loop again.
 pce_wait_lo:             .res 1
 pce_wait_hi:             .res 1
 pce_vblank_timeout_count:.res 1
@@ -72,9 +71,6 @@ pce_last_vdc_status:     .res 1
     rts
 .endproc
 
-; Upload one logical 16x16 cave object (2x2 BAT cells) from the shared
-; 32x28 render buffer. This is used for ordinary movement while the viewport
-; itself stays fixed.
 .proc pce_upload_object
     lda pce_obj_x
     sec
@@ -85,7 +81,6 @@ pce_last_vdc_status:     .res 1
     sbc game_view_y
     sta pce_rel_y
 
-    ; Source pointer = game_cave_render + rel_y*128 + rel_x*4.
     lda #<game_cave_render
     sta pce_zp_src
     lda #>game_cave_render
@@ -114,7 +109,6 @@ pce_last_vdc_status:     .res 1
     adc #$00
     sta pce_zp_src+1
 
-    ; BAT word address = rel_y*64 + rel_x*2.
     stz pce_addr_lo
     stz pce_addr_hi
     ldx pce_rel_y
@@ -139,7 +133,6 @@ pce_last_vdc_status:     .res 1
     adc #$00
     sta pce_addr_hi
 
-    ; Top two character cells.
     ldy #$00
     lda (pce_zp_src),y
     sta pce_dirty_buf
@@ -162,7 +155,6 @@ pce_last_vdc_status:     .res 1
     st0 #VDC_DATA
     tia pce_dirty_buf, VDC_DATA_L, 4
 
-    ; Bottom two cells are one 32-cell BAT row lower and 64 source bytes later.
     clc
     lda pce_zp_src
     adc #$40
@@ -214,35 +206,27 @@ pce_last_vdc_status:     .res 1
     st0 #VDC_CR
     st1 #$00
     st2 #$00
-
     st0 #VDC_HSR
     st1 #$02
     st2 #$02
-
     st0 #VDC_HDR
     st1 #$1f
     st2 #$04
-
     st0 #VDC_VSR
     st1 #$07
     st2 #$0d
-
     st0 #VDC_VDR
     st1 #$df
     st2 #$00
-
     st0 #VDC_VCR
     st1 #$03
     st2 #$00
-
     st0 #VDC_MWR
     st1 #$00
     st2 #$00
-
     st0 #VDC_BXR
     st1 #$00
     st2 #$00
-
     st0 #VDC_BYR
     st1 #$00
     st2 #$00
@@ -253,7 +237,6 @@ pce_last_vdc_status:     .res 1
     st0 #VDC_DATA
     tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
 
-    ; Clear complete 32x32 BAT while display is disabled.
     st0 #VDC_MAWR
     st1 #$00
     st2 #$00
@@ -271,7 +254,6 @@ pce_last_vdc_status:     .res 1
 
     jsr pce_upload_cave
 
-    ; Temporary Cave 1 palette. Exact C64 palette calibration is deferred.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
     stz VCE_DATA_L
@@ -286,14 +268,12 @@ pce_last_vdc_status:     .res 1
     sta VCE_DATA_L
     stz VCE_DATA_H
 
-    ; Backdrop/border black.
     stz VCE_ADDR_L
     lda #$01
     sta VCE_ADDR_H
     stz VCE_DATA_L
     stz VCE_DATA_H
 
-    ; BG on + VBlank event enabled.
     st0 #VDC_CR
     st1 #$88
     st2 #$00
@@ -307,7 +287,6 @@ pce_last_vdc_status:     .res 1
     lda game_view_y
     sta pce_last_view_y
 
-    ; Reset controller scan chain.
     lda #$01
     sta JOYPAD
     lda #$03
@@ -318,8 +297,6 @@ pce_last_vdc_status:     .res 1
 .endproc
 
 .proc platform_wait_frame
-    ; Poll for a VBlank event, but never allow a lost event to hard-lock the
-    ; whole game. The timeout is intentionally long enough to cover a frame.
     stz pce_wait_lo
     lda #$40
     sta pce_wait_hi
@@ -328,19 +305,16 @@ pce_last_vdc_status:     .res 1
     sta pce_last_vdc_status
     and #$20
     bne @done
-
     dec pce_wait_lo
     bne @wait_vblank
     dec pce_wait_hi
     bne @wait_vblank
-
     inc pce_vblank_timeout_count
 @done:
     rts
 .endproc
 
 .proc platform_read_pad
-    ; Reset to pad 1, then read active-low direction nibble with SEL=1.
     lda #$01
     sta JOYPAD
     lda #$03
@@ -350,27 +324,22 @@ pce_last_vdc_status:     .res 1
     pha
     pla
     nop
-
     lda JOYPAD
     and #$0f
     eor #$0f
     sta pce_raw_dpad
 
-    ; Buttons with SEL=0.
     lda #$00
     sta JOYPAD
     pha
     pla
     nop
-
     lda JOYPAD
     and #$0f
     eor #$0f
     sta pce_raw_buttons
 
     stz pad_result
-
-    ; Direction nibble: d3 Left, d2 Down, d1 Right, d0 Up.
     lda pce_raw_dpad
     and #%00001000
     beq :+
@@ -399,8 +368,6 @@ pce_last_vdc_status:     .res 1
     ora #PAD_DOWN
     sta pad_result
 :
-
-    ; Button nibble: d3 Run, d2 Select, d1 II, d0 I.
     lda pce_raw_buttons
     and #%00000001
     beq :+
@@ -422,13 +389,16 @@ pce_last_vdc_status:     .res 1
     ora #PAD_SELECT
     sta pad_result
 :
-
     lda pad_result
     rts
 .endproc
 
 .proc platform_video_begin
-    ; Ordinary movement updates only Rockford's old/new logical cells.
+    ; Physics may change many cave cells in one scan. Use a full BAT refresh for
+    ; those frames; keep the small two-object path for player-only movement.
+    lda game_video_full_dirty
+    bne @full
+
     lda game_view_x
     cmp pce_last_view_x
     bne @full
@@ -450,8 +420,6 @@ pce_last_vdc_status:     .res 1
     bra @remember
 
 @full:
-    ; Viewport changed: refresh the shared 32x28 BAT directly. Do not blank
-    ; BG here; blanking caused the visible full-screen flash seen in Mednafen.
     jsr pce_upload_cave
 
 @remember:
