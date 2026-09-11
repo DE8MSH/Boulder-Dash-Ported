@@ -15,104 +15,98 @@ OVERLAY_BAT    = 25
 
 .segment "BSS"
 bench_frac:    .res 1
-bench_count:   .res 1
-bench_d0:      .res 1
-bench_d1:      .res 1
-bench_d2:      .res 1
-bench_d3:      .res 1
-bench_d4:      .res 1
+bench_bcd0:    .res 1        ; tens : units
+bench_bcd1:    .res 1        ; thousands : hundreds
+bench_bcd2:    .res 1        ; hundred-thousands : ten-thousands
 bench_overlay: .res 14
 
 .segment "CODE"
 
 .proc platform_benchmark_reset
     stz bench_frac
-    stz bench_d0
-    stz bench_d1
-    stz bench_d2
-    stz bench_d3
-    stz bench_d4
-    rts
-.endproc
-
-.proc bench_add_one_ms
-    inc bench_d4
-    lda bench_d4
-    cmp #10
-    bcc @done
-    stz bench_d4
-    inc bench_d3
-    lda bench_d3
-    cmp #10
-    bcc @done
-    stz bench_d3
-    inc bench_d2
-    lda bench_d2
-    cmp #10
-    bcc @done
-    stz bench_d2
-    inc bench_d1
-    lda bench_d1
-    cmp #10
-    bcc @done
-    stz bench_d1
-    inc bench_d0
-    lda bench_d0
-    cmp #10
-    bcc @done
-    stz bench_d0
-@done:
+    stz bench_bcd0
+    stz bench_bcd1
+    stz bench_bcd2
     rts
 .endproc
 
 .proc platform_benchmark_tick
     ; Current HuC6280 timer pacing is about 18.31 ms per host tick.
-    lda #18
-    sta bench_count
+    ; Keep the fractional .31 ms in binary, then add either 18 or 19 ms to
+    ; a packed-BCD millisecond counter. This is much smaller than incrementing
+    ; five separate decimal digits and keeps the 8 KiB HuCard image intact.
     clc
     lda bench_frac
     adc #79
     sta bench_frac
-    bcc @add
-    inc bench_count
-@add:
-    jsr bench_add_one_ms
-    dec bench_count
-    bne @add
+    lda #$18
+    bcc :+
+    lda #$19
+:
+    sed
+    clc
+    adc bench_bcd0
+    sta bench_bcd0
+    lda bench_bcd1
+    adc #0
+    sta bench_bcd1
+    lda bench_bcd2
+    adc #0
+    sta bench_bcd2
+    cld
     rts
 .endproc
 
 .proc platform_benchmark_show
-    ldx #0
+    ; Render five decimal digits from packed BCD: d4 d3 d2 d1 d0.
     ldy #0
-@digits:
-    lda bench_d0,x
-    clc
-    adc #FONT_TILE_BASE
-    sta bench_overlay,y
-    iny
-    lda #0
-    sta bench_overlay,y
-    iny
-    inx
-    cpx #5
-    bne @digits
+
+    lda bench_bcd2
+    and #$0f
+    jsr @put_digit
+
+    lda bench_bcd1
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    jsr @put_digit
+
+    lda bench_bcd1
+    and #$0f
+    jsr @put_digit
+
+    lda bench_bcd0
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    jsr @put_digit
+
+    lda bench_bcd0
+    and #$0f
+    jsr @put_digit
+
     lda #FONT_M_TILE
-    sta bench_overlay,y
-    iny
-    lda #0
-    sta bench_overlay,y
-    iny
+    jsr @put_tile
     lda #FONT_S_TILE
-    sta bench_overlay,y
-    iny
-    lda #0
-    sta bench_overlay,y
+    jsr @put_tile
 
     st0 #VDC_MAWR
     st1 #<OVERLAY_BAT
     st2 #>OVERLAY_BAT
     st0 #VDC_DATA
     tia bench_overlay, VDC_DATA_L, 14
+    rts
+
+@put_digit:
+    clc
+    adc #FONT_TILE_BASE
+@put_tile:
+    sta bench_overlay,y
+    iny
+    lda #0
+    sta bench_overlay,y
+    iny
     rts
 .endproc
