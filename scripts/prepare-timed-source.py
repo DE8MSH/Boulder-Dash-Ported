@@ -5,7 +5,7 @@ from pathlib import Path
 import argparse
 
 
-def prepare_game(src: str, step: int, threshold: int) -> str:
+def prepare_game(src: str, step: int, threshold: int, burst: int) -> str:
     text = src.replace("PHYSICS_DIV = 3", f"LOGIC_THRESHOLD = {threshold}")
     old = """    inc game_phys_counter\n    lda game_phys_counter\n    cmp #PHYSICS_DIV\n    bcc @render_ready\n    stz game_phys_counter\n"""
     new = f"""    ; Fractional host-frame accumulator. The cave pass itself remains the\n    ; original shared top-to-bottom C64-style scan.\n    clc\n    lda game_phys_counter\n    adc #{step}\n    sta game_phys_counter\n    cmp #LOGIC_THRESHOLD\n    bcc @render_ready\n    sec\n    sbc #LOGIC_THRESHOLD\n    sta game_phys_counter\n"""
@@ -35,6 +35,18 @@ def prepare_game(src: str, step: int, threshold: int) -> str:
         1,
     )
 
+    # SNES benchmark acceleration: execute several complete C64-style cave
+    # scans before rendering/waiting once. The scan order and autoplay input
+    # sequence are unchanged; only redundant host-frame waits/renders between
+    # scans are removed. PHX/PLX makes this 65816-only, so burst > 1 is used
+    # only by the SNES build.
+    if burst > 1:
+        logic_block = """    lda game_pad_current\n    sta game_pad_previous\n    jsr game_autoplay_read\n    sta game_pad_current\n    lda game_pad_previous\n    eor #$ff\n    and game_pad_current\n    sta game_pad_pressed\n\n    jsr game_physics_step\n\n    lda game_video_dirty\n"""
+        burst_block = f"""    ldx #{burst}\n@benchmark_burst:\n    phx\n    lda game_pad_current\n    sta game_pad_previous\n    jsr game_autoplay_read\n    sta game_pad_current\n    lda game_pad_previous\n    eor #$ff\n    and game_pad_current\n    sta game_pad_pressed\n\n    jsr game_physics_step\n    plx\n    dex\n    bne @benchmark_burst\n\n    lda game_video_dirty\n"""
+        if logic_block not in text:
+            raise SystemExit("game logic block not found for burst pacing")
+        text = text.replace(logic_block, burst_block, 1)
+
     # Adding the benchmark/autoplay imports and timing code can push the
     # bottom-of-row loop just beyond the 6502-family +/-127 byte branch range.
     # Preserve the exact loop semantics with an inverse short branch + JMP.
@@ -63,12 +75,13 @@ def main() -> None:
     ap.add_argument("output", type=Path)
     ap.add_argument("--step", type=int, default=4)
     ap.add_argument("--threshold", type=int, default=12)
+    ap.add_argument("--burst", type=int, default=1)
     ap.add_argument("--reload", type=lambda x: int(x, 0), default=0x7F)
     args = ap.parse_args()
 
     src = args.input.read_text()
     if args.mode == "game":
-        out = prepare_game(src, args.step, args.threshold)
+        out = prepare_game(src, args.step, args.threshold, args.burst)
     else:
         out = prepare_pce(src, args.reload)
     args.output.write_text(out)
