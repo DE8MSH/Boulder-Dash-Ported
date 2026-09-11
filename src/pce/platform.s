@@ -2,15 +2,13 @@
 
 .include "../common/platform.inc"
 
-VDC_REG    = $0000
-VDC_DATA_L = $0002
-VDC_DATA_H = $0003
-VCE_CTRL   = $0400
-VCE_ADDR_L = $0402
-VCE_ADDR_H = $0403
-VCE_DATA_L = $0404
-VCE_DATA_H = $0405
-JOYPAD     = $1000
+VDC_STATUS  = $0000
+VCE_CTRL    = $0400
+VCE_ADDR_L  = $0402
+VCE_ADDR_H  = $0403
+VCE_DATA_L  = $0404
+VCE_DATA_H  = $0405
+JOYPAD      = $1000
 
 VDC_MAWR = $00
 VDC_DATA = $02
@@ -24,8 +22,8 @@ VDC_VSR  = $0C
 VDC_VDR  = $0D
 VDC_VCR  = $0E
 
-; BAT occupies words $0000-$03ff in 32x32 mode. A 4bpp BG tile is 32 bytes
-; (16 VDC words), so tile index $40 starts exactly at VDC word $0400.
+; 32x32 BAT occupies VDC words $0000-$03ff. One 8x8 4bpp tile consumes
+; 16 words, so tile index $40 starts at VDC word $0400.
 PCE_DIAG_WORD = $0400
 PCE_DIAG_TILE = $0040
 
@@ -36,115 +34,95 @@ pce_raw_buttons: .res 1
 
 .segment "CODE"
 
-.proc vdc_write_xy
-    sta VDC_REG
-    stx VDC_DATA_L
-    sty VDC_DATA_H
-    rts
-.endproc
-
 .proc platform_init
     sei
     csh
 
-    stz VCE_CTRL        ; 5 MHz dot clock
+    ; VCE: 5 MHz dot clock.
+    stz VCE_CTRL
 
-    ; Disable display/IRQs and force MAWR increment +1 before any VRAM access.
-    lda #VDC_CR
-    ldx #$00
-    ldy #$00
-    jsr vdc_write_xy
+    ; Use the HuC6280's dedicated VDC instructions for this diagnostic path.
+    ; ST0 selects the VDC register, ST1 writes its low byte, ST2 its high byte.
+    ; This avoids any ambiguity around ordinary memory-mapped writes.
 
-    ; 256x224 timing.
-    lda #VDC_HSR
-    ldx #$02
-    ldy #$02
-    jsr vdc_write_xy
+    ; Display/IRQs off, VRAM auto-increment = +1 word.
+    st0 #VDC_CR
+    st1 #$00
+    st2 #$00
 
-    lda #VDC_HDR
-    ldx #$1f
-    ldy #$04
-    jsr vdc_write_xy
+    ; Known-good 256x224 timing.
+    st0 #VDC_HSR
+    st1 #$02
+    st2 #$02
 
-    lda #VDC_VSR
-    ldx #$07
-    ldy #$0d
-    jsr vdc_write_xy
+    st0 #VDC_HDR
+    st1 #$1f
+    st2 #$04
 
-    lda #VDC_VDR
-    ldx #$df
-    ldy #$00
-    jsr vdc_write_xy
+    st0 #VDC_VSR
+    st1 #$07
+    st2 #$0d
 
-    lda #VDC_VCR
-    ldx #$03
-    ldy #$00
-    jsr vdc_write_xy
+    st0 #VDC_VDR
+    st1 #$df
+    st2 #$00
 
-    lda #VDC_MWR
-    ldx #$00            ; 32x32 BAT
-    ldy #$00
-    jsr vdc_write_xy
+    st0 #VDC_VCR
+    st1 #$03
+    st2 #$00
 
-    lda #VDC_BXR
-    ldx #$00
-    ldy #$00
-    jsr vdc_write_xy
+    ; 32x32 BAT and zero scroll.
+    st0 #VDC_MWR
+    st1 #$00
+    st2 #$00
 
-    lda #VDC_BYR
-    ldx #$00
-    ldy #$00
-    jsr vdc_write_xy
+    st0 #VDC_BXR
+    st1 #$00
+    st2 #$00
 
-    ; One known solid tile, written directly through the VDC data port.
-    ; First 8 words contain planes 0/1, next 8 words planes 2/3.
-    lda #VDC_MAWR
-    ldx #<PCE_DIAG_WORD
-    ldy #>PCE_DIAG_WORD
-    jsr vdc_write_xy
+    st0 #VDC_BYR
+    st1 #$00
+    st2 #$00
 
-    lda #VDC_DATA
-    sta VDC_REG
+    ; Write one solid palette-index-1 tile at VRAM word $0400.
+    st0 #VDC_MAWR
+    st1 #<PCE_DIAG_WORD
+    st2 #>PCE_DIAG_WORD
 
+    st0 #VDC_DATA
     ldx #$08
 @diag01:
-    lda #$ff            ; plane 0 = all set -> palette index 1
-    sta VDC_DATA_L
-    stz VDC_DATA_H      ; plane 1 = clear
+    st1 #$ff            ; plane 0 all set
+    st2 #$00            ; plane 1 clear; high write advances MAWR
     dex
     bne @diag01
 
     ldx #$08
 @diag23:
-    stz VDC_DATA_L
-    stz VDC_DATA_H
+    st1 #$00
+    st2 #$00
     dex
     bne @diag23
 
-    ; Fill ALL 1024 BAT cells with tile $40. If BG output works, the complete
-    ; active display must become palette color 1 (white).
-    lda #VDC_MAWR
-    ldx #$00
-    ldy #$00
-    jsr vdc_write_xy
-
-    lda #VDC_DATA
-    sta VDC_REG
+    ; Fill all 1024 BAT entries with tile $40. If BG output is functioning,
+    ; the complete active 256x224 display becomes palette color 1 (white).
+    st0 #VDC_MAWR
+    st1 #$00
+    st2 #$00
+    st0 #VDC_DATA
 
     ldy #$04
 @bat_page:
     ldx #$00
 @bat_word:
-    lda #<PCE_DIAG_TILE
-    sta VDC_DATA_L
-    lda #>PCE_DIAG_TILE
-    sta VDC_DATA_H
+    st1 #<PCE_DIAG_TILE
+    st2 #>PCE_DIAG_TILE
     inx
     bne @bat_word
     dey
     bne @bat_page
 
-    ; Background palette 0: color 0 blue, color 1 white.
+    ; BG palette 0: blue transparent/background color, white index 1.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
     lda #$03
@@ -155,7 +133,7 @@ pce_raw_buttons: .res 1
     lda #$01
     sta VCE_DATA_H
 
-    ; Border/backdrop remains blue so active BG area is easy to distinguish.
+    ; Backdrop/border blue.
     stz VCE_ADDR_L
     lda #$01
     sta VCE_ADDR_H
@@ -163,11 +141,10 @@ pce_raw_buttons: .res 1
     sta VCE_DATA_L
     stz VCE_DATA_H
 
-    ; BG on + VBlank interrupt/status source; IW remains +1.
-    lda #VDC_CR
-    ldx #$88
-    ldy #$00
-    jsr vdc_write_xy
+    ; Enable background and VBlank status/interrupt source.
+    st0 #VDC_CR
+    st1 #$88
+    st2 #$00
 
     lda #$03
     sta JOYPAD
@@ -178,7 +155,7 @@ pce_raw_buttons: .res 1
 
 .proc platform_wait_frame
 @wait_vblank:
-    lda VDC_REG
+    lda VDC_STATUS
     and #$20
     beq @wait_vblank
     rts
