@@ -2,7 +2,6 @@
 
 .include "../common/platform.inc"
 
-; HuC6280 I/O mapping assumes the hardware page is mapped at $0000-$1fff.
 VDC_REG    = $0000
 VDC_DATA_L = $0002
 VDC_DATA_H = $0003
@@ -13,7 +12,6 @@ VCE_DATA_L = $0404
 VCE_DATA_H = $0405
 JOYPAD     = $1000
 
-; VDC register numbers.
 VDC_MAWR = $00
 VDC_DATA = $02
 VDC_CR   = $05
@@ -26,13 +24,10 @@ VDC_VSR  = $0C
 VDC_VDR  = $0D
 VDC_VCR  = $0E
 
-; 32x32 BAT occupies VRAM words $0000-$03ff. Pattern data starts at $0400,
-; which corresponds to BAT character index $0040 because each 8x8 4bpp tile
-; consumes 16 VRAM words.
-PCE_PATTERN_WORD = $0400
-PCE_PATTERN_TILE = $0040
-PCE_DIAG_WORD    = $0410
-PCE_DIAG_TILE    = $0041
+; BAT occupies words $0000-$03ff in 32x32 mode. A 4bpp BG tile is 32 bytes
+; (16 VDC words), so tile index $40 starts exactly at VDC word $0400.
+PCE_DIAG_WORD = $0400
+PCE_DIAG_TILE = $0040
 
 .segment "BSS"
 pad_result:      .res 1
@@ -41,7 +36,6 @@ pce_raw_buttons: .res 1
 
 .segment "CODE"
 
-; Write A=register number, X=low byte, Y=high byte to the VDC.
 .proc vdc_write_xy
     sta VDC_REG
     stx VDC_DATA_L
@@ -53,21 +47,15 @@ pce_raw_buttons: .res 1
     sei
     csh
 
-    ; RGB mode, 5 MHz dot clock.
-    stz VCE_CTRL
+    stz VCE_CTRL        ; 5 MHz dot clock
 
-    ; Define VDC control BEFORE touching VRAM. CR bits 12-11 select MAWR
-    ; auto-increment; $0000 guarantees +1 word after each high-byte write.
-    ; Leaving the power-on value here made BAT/pattern uploads land at
-    ; unpredictable strides on emulators/hardware.
+    ; Disable display/IRQs and force MAWR increment +1 before any VRAM access.
     lda #VDC_CR
     ldx #$00
     ldy #$00
     jsr vdc_write_xy
 
-    ; Known-good 256x224 timing used by established PCE examples.
-    ; Horizontal: HSR=$0202, HDR=$041f.
-    ; Vertical:   VPR=$0d07, VDW=$00df, VCR=$0003.
+    ; 256x224 timing.
     lda #VDC_HSR
     ldx #$02
     ldy #$02
@@ -98,102 +86,65 @@ pce_raw_buttons: .res 1
     ldy #$00
     jsr vdc_write_xy
 
-    ; Power-on scroll values are not part of the game contract. Explicitly
-    ; start at BAT origin so the first generated rows are guaranteed visible.
     lda #VDC_BXR
     ldx #$00
     ldy #$00
     jsr vdc_write_xy
+
     lda #VDC_BYR
     ldx #$00
     ldy #$00
     jsr vdc_write_xy
 
-    ; Upload generated 4bpp tiles to VRAM word $0400 first. Chr_00 is a
-    ; guaranteed blank character and becomes tile $40.
-    lda #VDC_MAWR
-    ldx #<PCE_PATTERN_WORD
-    ldy #>PCE_PATTERN_WORD
-    jsr vdc_write_xy
-    lda #VDC_DATA
-    sta VDC_REG
-    tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
-
-    ; Also write one known solid diagnostic tile directly through the VDC port
-    ; at tile $41. This bypasses TIA/asset conversion for a visible reference.
+    ; One known solid tile, written directly through the VDC data port.
+    ; First 8 words contain planes 0/1, next 8 words planes 2/3.
     lda #VDC_MAWR
     ldx #<PCE_DIAG_WORD
     ldy #>PCE_DIAG_WORD
     jsr vdc_write_xy
+
     lda #VDC_DATA
     sta VDC_REG
+
     ldx #$08
-@diag_plane01:
-    lda #$ff            ; plane 0 = 1 for all pixels => palette color 1
+@diag01:
+    lda #$ff            ; plane 0 = all set -> palette index 1
     sta VDC_DATA_L
-    stz VDC_DATA_H      ; plane 1 = 0
+    stz VDC_DATA_H      ; plane 1 = clear
     dex
-    bne @diag_plane01
+    bne @diag01
+
     ldx #$08
-@diag_plane23:
+@diag23:
     stz VDC_DATA_L
     stz VDC_DATA_H
     dex
-    bne @diag_plane23
+    bne @diag23
 
-    ; Fill the complete 32x32 BAT with tile $40 (Chr_00), not tile 0.
+    ; Fill ALL 1024 BAT cells with tile $40. If BG output works, the complete
+    ; active display must become palette color 1 (white).
     lda #VDC_MAWR
     ldx #$00
     ldy #$00
     jsr vdc_write_xy
-    lda #VDC_DATA
-    sta VDC_REG
-    ldy #$04            ; 4 * 256 words = 1024 BAT entries
-@clear_page:
-    ldx #$00
-@clear_word:
-    lda #<PCE_PATTERN_TILE
-    sta VDC_DATA_L
-    lda #>PCE_PATTERN_TILE
-    sta VDC_DATA_H
-    inx
-    bne @clear_word
-    dey
-    bne @clear_page
 
-    ; First two BAT rows show converted Chr_00..Chr_3f.
-    lda #VDC_MAWR
-    ldx #$00
-    ldy #$00
-    jsr vdc_write_xy
     lda #VDC_DATA
     sta VDC_REG
-    ldx #$00
-@write_test_map:
-    txa
-    clc
-    adc #<PCE_PATTERN_TILE
-    sta VDC_DATA_L
-    lda #>PCE_PATTERN_TILE
-    adc #$00
-    sta VDC_DATA_H
-    inx
-    cpx #bd_charset_pce_count
-    bne @write_test_map
 
-    ; Put the known solid tile at BAT row 10, column 10 (word $014a).
-    lda #VDC_MAWR
-    ldx #$4a
-    ldy #$01
-    jsr vdc_write_xy
-    lda #VDC_DATA
-    sta VDC_REG
+    ldy #$04
+@bat_page:
+    ldx #$00
+@bat_word:
     lda #<PCE_DIAG_TILE
     sta VDC_DATA_L
     lda #>PCE_DIAG_TILE
     sta VDC_DATA_H
+    inx
+    bne @bat_word
+    dey
+    bne @bat_page
 
-    ; BG palette 0: dark blue background, white foreground for C64 set pixels.
+    ; Background palette 0: color 0 blue, color 1 white.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
     lda #$03
@@ -204,7 +155,7 @@ pce_raw_buttons: .res 1
     lda #$01
     sta VCE_DATA_H
 
-    ; Backdrop color comes from color 0 of the first sprite palette ($100).
+    ; Border/backdrop remains blue so active BG area is easy to distinguish.
     stz VCE_ADDR_L
     lda #$01
     sta VCE_ADDR_H
@@ -212,14 +163,12 @@ pce_raw_buttons: .res 1
     sta VCE_DATA_L
     stz VCE_DATA_H
 
-    ; Enable VBlank event and background display; sprites remain off.
-    ; IW remains 00 here, so subsequent VRAM writes also keep +1 increment.
+    ; BG on + VBlank interrupt/status source; IW remains +1.
     lda #VDC_CR
-    ldx #$88            ; BG enable + VBlank event
+    ldx #$88
     ldy #$00
     jsr vdc_write_xy
 
-    ; Reset controller/multitap scan state, then leave SEL high.
     lda #$03
     sta JOYPAD
     lda #$01
@@ -320,6 +269,3 @@ pce_raw_buttons: .res 1
     ; Deferred milestone: HuC6280 PSG music and SFX backend.
     rts
 .endproc
-
-.segment "RODATA"
-.include "../../build/generated/pce/charset.inc"
