@@ -270,7 +270,9 @@ game_tile_char_map:
     inc game_render_row
     lda game_render_row
     cmp #VIEW_OBJ_H
-    bne @row
+    beq @done
+    jmp @row
+@done:
     rts
 .endproc
 
