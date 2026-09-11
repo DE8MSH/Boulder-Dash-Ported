@@ -1,6 +1,7 @@
 .include "platform.inc"
 
 .import game_cave_initial
+.import game_progress_init
 
 .export game_init
 .export game_tick
@@ -426,7 +427,87 @@ game_tile_char_map:
     rts
 .endproc
 
-.proc game_physics_normalize
+.proc game_physics_is_rounded
+    cmp #T_BOULDER_FIXED
+    beq @yes
+    cmp #T_DIAMOND_FIXED
+    beq @yes
+    cmp #T_BRICK
+    beq @yes
+    clc
+    rts
+@yes:
+    sec
+    rts
+.endproc
+
+.proc game_physics_move_to_target
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    lda #T_EMPTY
+    jsr game_set_point
+
+    lda game_target_x
+    sta game_point_x
+    lda game_target_y
+    sta game_point_y
+    lda game_phys_new_tile
+    jsr game_set_point
+    jsr game_mark_full_dirty
+    rts
+.endproc
+
+.proc game_explode_drop
+    stz game_player_alive
+    lda #1
+    sta game_explosion_changed
+
+    lda game_phys_y
+    beq @y_start_zero
+    dec a
+@y_start_zero:
+    sta game_target_y
+
+@row:
+    lda game_phys_x
+    beq @x_start_zero
+    dec a
+@x_start_zero:
+    sta game_target_x
+
+@col:
+    lda game_target_x
+    sta game_point_x
+    lda game_target_y
+    sta game_point_y
+    jsr game_get_point
+    cmp #T_STEEL
+    beq @next_col
+    lda #T_XPL_EMPTY0
+    jsr game_set_point
+
+@next_col:
+    inc game_target_x
+    lda game_target_x
+    sec
+    sbc game_phys_x
+    cmp #2
+    bcc @col
+
+    inc game_target_y
+    lda game_target_y
+    sec
+    sbc game_phys_y
+    cmp #2
+    bcc @row
+
+    jsr game_mark_full_dirty
+    rts
+.endproc
+
+.proc game_normalize_markers
     stz game_explosion_changed
     lda #<game_cave_state
     sta game_zp_src
@@ -435,7 +516,7 @@ game_tile_char_map:
     ldx #3
 @page:
     ldy #0
-@byte:
+@scan:
     lda (game_zp_src),y
     cmp #T_BOULDER_FIXED_
     bne :+
@@ -465,33 +546,40 @@ game_tile_char_map:
     cmp #T_XPL_EMPTY0
     bne :+
     lda #T_XPL_EMPTY1
-    bra @expl_store
+    lda #1
+    sta game_explosion_changed
+    lda #T_XPL_EMPTY1
+    bra @store
 :
     cmp #T_XPL_EMPTY1
     bne :+
+    lda #1
+    sta game_explosion_changed
     lda #T_XPL_EMPTY2
-    bra @expl_store
+    bra @store
 :
     cmp #T_XPL_EMPTY2
     bne :+
+    lda #1
+    sta game_explosion_changed
     lda #T_XPL_EMPTY3
-    bra @expl_store
+    bra @store
 :
     cmp #T_XPL_EMPTY3
     bne :+
+    lda #1
+    sta game_explosion_changed
     lda #T_XPL_EMPTY4
-    bra @expl_store
+    bra @store
 :
     cmp #T_XPL_EMPTY4
     bne @next
     lda #T_EMPTY
-@expl_store:
-    inc game_explosion_changed
 @store:
     sta (game_zp_src),y
 @next:
     iny
-    bne @byte
+    bne @scan
     inc game_zp_src+1
     dex
     bne @page
@@ -526,29 +614,35 @@ game_tile_char_map:
 :
     cmp #T_XPL_EMPTY0
     bne :+
+    lda #1
+    sta game_explosion_changed
     lda #T_XPL_EMPTY1
-    bra @tail_expl_store
+    bra @tail_store
 :
     cmp #T_XPL_EMPTY1
     bne :+
+    lda #1
+    sta game_explosion_changed
     lda #T_XPL_EMPTY2
-    bra @tail_expl_store
+    bra @tail_store
 :
     cmp #T_XPL_EMPTY2
     bne :+
+    lda #1
+    sta game_explosion_changed
     lda #T_XPL_EMPTY3
-    bra @tail_expl_store
+    bra @tail_store
 :
     cmp #T_XPL_EMPTY3
     bne :+
+    lda #1
+    sta game_explosion_changed
     lda #T_XPL_EMPTY4
-    bra @tail_expl_store
+    bra @tail_store
 :
     cmp #T_XPL_EMPTY4
     bne @tail_next
     lda #T_EMPTY
-@tail_expl_store:
-    inc game_explosion_changed
 @tail_store:
     sta (game_zp_src),y
 @tail_next:
@@ -560,116 +654,6 @@ game_tile_char_map:
     beq @done
     jsr game_mark_full_dirty
 @done:
-    rts
-.endproc
-
-.proc game_physics_is_rounded
-    cmp #T_BOULDER_FIXED
-    beq @yes
-    cmp #T_DIAMOND_FIXED
-    beq @yes
-    cmp #T_BRICK
-    beq @yes
-    clc
-    rts
-@yes:
-    sec
-    rts
-.endproc
-
-.proc game_physics_move_to_target
-    lda game_phys_x
-    sta game_point_x
-    lda game_phys_y
-    sta game_point_y
-    lda #T_EMPTY
-    jsr game_set_point
-
-    lda game_target_x
-    sta game_point_x
-    lda game_target_y
-    sta game_point_y
-    lda game_phys_fall_tile
-    jsr game_set_point
-    jsr game_mark_full_dirty
-    rts
-.endproc
-
-.proc game_explosion_write
-    sta game_phys_new_tile
-    jsr game_get_point
-    cmp #T_STEEL
-    beq @done
-    lda game_phys_new_tile
-    jsr game_set_point
-@done:
-    rts
-.endproc
-
-.proc game_explode_drop
-    stz game_player_alive
-
-    lda game_phys_x
-    dec a
-    sta game_point_x
-    lda game_phys_y
-    sta game_point_y
-    lda #T_XPL_EMPTY1
-    jsr game_explosion_write
-
-    lda game_phys_x
-    sta game_point_x
-    lda game_phys_y
-    sta game_point_y
-    lda #T_XPL_EMPTY1
-    jsr game_explosion_write
-
-    lda game_phys_x
-    inc a
-    sta game_point_x
-    lda game_phys_y
-    sta game_point_y
-    lda #T_XPL_EMPTY0
-    jsr game_explosion_write
-
-    lda game_phys_y
-    inc a
-    sta game_point_y
-    lda game_phys_x
-    dec a
-    sta game_point_x
-    lda #T_XPL_EMPTY0
-    jsr game_explosion_write
-    lda game_phys_x
-    sta game_point_x
-    lda #T_XPL_EMPTY0
-    jsr game_explosion_write
-    lda game_phys_x
-    inc a
-    sta game_point_x
-    lda #T_XPL_EMPTY0
-    jsr game_explosion_write
-
-    lda game_phys_y
-    clc
-    adc #2
-    sta game_point_y
-    lda game_phys_x
-    dec a
-    sta game_point_x
-    lda #T_XPL_EMPTY0
-    jsr game_explosion_write
-    lda game_phys_x
-    sta game_point_x
-    lda #T_XPL_EMPTY0
-    jsr game_explosion_write
-    lda game_phys_x
-    inc a
-    sta game_point_x
-    lda #T_XPL_EMPTY0
-    jsr game_explosion_write
-
-    jsr game_mark_full_dirty
     rts
 .endproc
 
@@ -702,7 +686,6 @@ game_tile_char_map:
     jsr game_physics_move_to_target
     sec
     rts
-
 @right:
     lda game_phys_x
     cmp #38
@@ -880,20 +863,20 @@ game_tile_char_map:
     sta game_point_y
     jsr game_get_point
     cmp #T_EMPTY
-    beq @allowed
+    beq @move
     cmp #T_SOIL
-    beq @allowed
+    beq @move
     cmp #T_DIAMOND_FIXED
     beq @diamond
     cmp #T_EXIT_OPEN
-    beq @allowed
+    beq @move
     cmp #T_BOULDER_FIXED
     bne @blocked
     jsr game_try_push_boulder
     rts
 @diamond:
     jsr game_collect_diamond
-@allowed:
+@move:
     lda game_player_x
     sta game_point_x
     lda game_player_y
@@ -911,79 +894,63 @@ game_tile_char_map:
     lda game_target_y
     sta game_player_y
     jsr game_update_view
-    lda #1
-    sta game_video_dirty
+    jsr game_mark_full_dirty
+    sec
+    rts
 @blocked:
+    clc
     rts
 .endproc
 
 .proc game_handle_player
-    lda game_player_alive
-    bne :+
-    rts
-:
-    ; The original reads the current joystick level when Rockford's cave cell
-    ; is processed. Held directions therefore repeat once per cave scan.
     lda game_pad_current
     and #PAD_LEFT
     beq @right
-    lda game_player_x
-    cmp #1
-    beq @done
-    sec
-    sbc #1
+    lda game_phys_x
+    dec a
     sta game_target_x
-    lda game_player_y
+    lda game_phys_y
     sta game_target_y
-    jmp game_try_move
+    jsr game_try_move
+    rts
 @right:
     lda game_pad_current
     and #PAD_RIGHT
     beq @up
-    lda game_player_x
-    cmp #38
-    beq @done
-    clc
-    adc #1
+    lda game_phys_x
+    inc a
     sta game_target_x
-    lda game_player_y
+    lda game_phys_y
     sta game_target_y
-    jmp game_try_move
+    jsr game_try_move
+    rts
 @up:
     lda game_pad_current
     and #PAD_UP
     beq @down
-    lda game_player_y
-    cmp #1
-    beq @done
-    sec
-    sbc #1
-    sta game_target_y
-    lda game_player_x
+    lda game_phys_x
     sta game_target_x
-    jmp game_try_move
+    lda game_phys_y
+    dec a
+    sta game_target_y
+    jsr game_try_move
+    rts
 @down:
     lda game_pad_current
     and #PAD_DOWN
     beq @done
-    lda game_player_y
-    cmp #20
-    beq @done
-    clc
-    adc #1
-    sta game_target_y
-    lda game_player_x
+    lda game_phys_x
     sta game_target_x
-    jmp game_try_move
+    lda game_phys_y
+    inc a
+    sta game_target_y
+    jsr game_try_move
 @done:
     rts
 .endproc
 
-; One complete C64-style cave pass. Rockford is dispatched from his actual
-; tile in the same top-to-bottom order as the other dynamic cave objects.
 .proc game_physics_step
-    jsr game_physics_normalize
-
+    jsr game_normalize_markers
     lda #1
     sta game_phys_y
 @row:
@@ -995,47 +962,50 @@ game_tile_char_map:
     lda game_phys_y
     sta game_point_y
     jsr game_get_point
-
     cmp #T_BOULDER_FIXED
-    bne @bfall
-    lda #T_BOULDER_FIXED
-    sta game_phys_fix_tile
-    lda #T_BOULDER_FALL_
-    sta game_phys_fall_tile
-    jsr game_physics_fixed
-    bra @next
-
-@bfall:
-    cmp #T_BOULDER_FALL
-    bne @dfix
+    bne :+
     lda #T_BOULDER_FIXED_
     sta game_phys_fix_tile
     lda #T_BOULDER_FALL_
     sta game_phys_fall_tile
-    jsr game_physics_falling
-    bra @next
-
-@dfix:
-    cmp #T_DIAMOND_FIXED
-    bne @dfall
-    lda #T_DIAMOND_FIXED
-    sta game_phys_fix_tile
-    lda #T_DIAMOND_FALL_
-    sta game_phys_fall_tile
+    lda #T_BOULDER_FALL_
+    sta game_phys_new_tile
     jsr game_physics_fixed
     bra @next
-
-@dfall:
-    cmp #T_DIAMOND_FALL
-    bne @rockford
+:
+    cmp #T_BOULDER_FALL
+    bne :+
+    lda #T_BOULDER_FIXED_
+    sta game_phys_fix_tile
+    lda #T_BOULDER_FALL_
+    sta game_phys_fall_tile
+    lda #T_BOULDER_FALL_
+    sta game_phys_new_tile
+    jsr game_physics_falling
+    bra @next
+:
+    cmp #T_DIAMOND_FIXED
+    bne :+
     lda #T_DIAMOND_FIXED_
     sta game_phys_fix_tile
     lda #T_DIAMOND_FALL_
     sta game_phys_fall_tile
+    lda #T_DIAMOND_FALL_
+    sta game_phys_new_tile
+    jsr game_physics_fixed
+    bra @next
+:
+    cmp #T_DIAMOND_FALL
+    bne :+
+    lda #T_DIAMOND_FIXED_
+    sta game_phys_fix_tile
+    lda #T_DIAMOND_FALL_
+    sta game_phys_fall_tile
+    lda #T_DIAMOND_FALL_
+    sta game_phys_new_tile
     jsr game_physics_falling
     bra @next
-
-@rockford:
+:
     cmp #T_ROCKFORD
     bne @next
     jsr game_handle_player
@@ -1086,6 +1056,7 @@ game_tile_char_map:
     sta (game_zp_src),y
     jsr game_update_view
     jsr game_render_cave
+    jsr game_progress_init
     jsr platform_init
     rts
 .endproc
