@@ -23,8 +23,16 @@ TM       = $212C
 TS       = $212D
 SETINI   = $2133
 NMITIMEN = $4200
+MDMAEN   = $420B
 HVBJOY   = $4212
 JOY1H    = $4219
+DMAP0    = $4300
+BBAD0    = $4301
+A1T0L    = $4302
+A1T0H    = $4303
+A1B0     = $4304
+DAS0L    = $4305
+DAS0H    = $4306
 
 CAVE_RENDER_BYTES = 32 * 28 * 2
 
@@ -34,26 +42,31 @@ pad_result: .res 1
 .segment "CODE"
 
 .proc snes_upload_cave
-    ; BG1 tilemap starts at VRAM word $1000. The shared render buffer already
-    ; contains complete little-endian tilemap words using pattern base $40.
+    ; BG1 tilemap starts at VRAM word $1000. VBlank DMA is fast enough to
+    ; transfer the complete 32x28 shared tilemap without forcing the display
+    ; blank, so movement no longer flashes the screen.
+    lda #$80
+    sta VMAIN
     stz VMADDL
     lda #$10
     sta VMADDH
 
-    rep #$10
-    .i16
-    ldx #$0000
-@copy:
-    lda game_cave_render,x
-    sta VMDATAL
-    inx
-    lda game_cave_render,x
-    sta VMDATAH
-    inx
-    cpx #CAVE_RENDER_BYTES
-    bne @copy
-    sep #$10
-    .i8
+    ; DMA mode 1 alternates writes to $2118/$2119 (VRAM low/high data).
+    lda #$01
+    sta DMAP0
+    lda #$18
+    sta BBAD0
+    lda #<game_cave_render
+    sta A1T0L
+    lda #>game_cave_render
+    sta A1T0H
+    stz A1B0
+    lda #<CAVE_RENDER_BYTES
+    sta DAS0L
+    lda #>CAVE_RENDER_BYTES
+    sta DAS0H
+    lda #$01
+    sta MDMAEN
     rts
 .endproc
 
@@ -107,7 +120,7 @@ pad_result: .res 1
     cpx #bd_charset_snes_bytes
     bne @upload_tiles
 
-    ; Clear complete 32x32 BG1 tilemap.
+    ; Clear complete 32x32 BG1 tilemap while display is still forced blank.
     stz VMADDL
     lda #$10
     sta VMADDH
@@ -224,14 +237,9 @@ pad_result: .res 1
 .endproc
 
 .proc platform_video_begin
-    ; A full 32x28 CPU tilemap upload is longer than one normal VBlank. Until
-    ; dirty-row/DMA uploads are implemented, force blank for the single frame
-    ; in which gameplay actually changed. This avoids split-screen tearing.
-    lda #$80
-    sta INIDISP
+    ; game_tick calls this immediately after platform_wait_frame, so this DMA
+    ; begins inside VBlank and requires no visible force-blank interval.
     jsr snes_upload_cave
-    lda #$0f
-    sta INIDISP
     rts
 .endproc
 
