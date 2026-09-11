@@ -25,10 +25,12 @@ asset groups into later banks as the C64 feature set grows.
 - Reset/IRQ vectors remain at physical ROM offsets `$1FF6-$1FFF`.
 - Bank `$01` is permanently mapped through `MPR6` at `$C000-$DFFF` during
   gameplay and contains the converted cave charset.
-- Intro graphics use physical banks `$02` and `$03`. `platform_init` maps them
-  temporarily through `MPR6`, expands the packed 2bpp C64-derived title tiles
-  into 4bpp VRAM, uploads the BAT, then restores bank `$01` before gameplay.
-- The current image is 32 KiB (four 8 KiB HuCard banks).
+- Intro graphics use physical banks `$02` through `$05`. They are stored in the
+  same native 32-byte 4bpp HuC6270 tile layout as the gameplay charset.
+- `platform_init` maps each intro bank through `MPR6` and transfers it directly
+  to VRAM with `TIA`; bank `$05` also contains the intro BAT. Bank `$01` is
+  restored before gameplay begins.
+- The current image is 48 KiB (six 8 KiB HuCard banks).
 - Shared RAM state stays at `$2200+` and never depends on the mapped ROM bank.
 
 ## Intro asset pipeline
@@ -48,7 +50,7 @@ asset groups into later banks as the C64 feature set grows.
 - SNES images grow in whole 32 KiB banks.
 - PCE images grow in whole 8 KiB banks.
 - `scripts/check-roms.py` currently verifies the expected 64 KiB SNES and
-  32 KiB PCE layouts, including the fixed reset-vector locations and non-empty
+  48 KiB PCE layouts, including the fixed reset-vector locations and non-empty
   intro banks.
 - Do not enlarge a ROM merely to hide a linker overflow. Add a banked segment
   deliberately and place a coherent asset/code group there.
