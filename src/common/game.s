@@ -33,7 +33,7 @@ RENDER_CHAR_W = 32
 RENDER_CHAR_H = 28
 RENDER_BYTES = RENDER_CHAR_W * RENDER_CHAR_H * 2
 PATTERN_BASE = $40
-PHYSICS_DIV = 6
+PHYSICS_DIV = 3
 
 ; Cave 1, difficulty 0 values from the original cave header.
 CAVE1_DIAMONDS_NEEDED = 12
@@ -1092,8 +1092,9 @@ game_tile_char_map:
 .proc game_tick
     stz game_video_full_dirty
 
-    ; Rendering remains frame-paced, but game logic now advances only as one
-    ; complete cave pass. Input is sampled exactly once for that pass.
+    ; Cave 1 difficulty 0 uses the original C64 slow-down value $0c after
+    ; every scanned row. On ~60 Hz console video, three frames per complete
+    ; cave pass is a much closer cadence than the old six-frame divider.
     inc game_phys_counter
     lda game_phys_counter
     cmp #PHYSICS_DIV
