@@ -20,76 +20,57 @@ FONT_S_TILE    = $bb
 OVERLAY_VRAM   = $1019
 
 .segment "BSS"
-bench_frac:  .res 1
-bench_count: .res 1
-bench_d0:    .res 1
-bench_d1:    .res 1
-bench_d2:    .res 1
-bench_d3:    .res 1
-bench_d4:    .res 1
+bench_frac: .res 1
+bench_bcd0: .res 1        ; tens : units
+bench_bcd1: .res 1        ; thousands : hundreds
+bench_bcd2: .res 1        ; hundred-thousands : ten-thousands
 
 .segment "CODE"
 
 .proc platform_benchmark_reset
     stz bench_frac
-    stz bench_d0
-    stz bench_d1
-    stz bench_d2
-    stz bench_d3
-    stz bench_d4
-    rts
-.endproc
-
-.proc bench_add_one_ms
-    inc bench_d4
-    lda bench_d4
-    cmp #10
-    bcc @done
-    stz bench_d4
-    inc bench_d3
-    lda bench_d3
-    cmp #10
-    bcc @done
-    stz bench_d3
-    inc bench_d2
-    lda bench_d2
-    cmp #10
-    bcc @done
-    stz bench_d2
-    inc bench_d1
-    lda bench_d1
-    cmp #10
-    bcc @done
-    stz bench_d1
-    inc bench_d0
-    lda bench_d0
-    cmp #10
-    bcc @done
-    stz bench_d0
-@done:
+    stz bench_bcd0
+    stz bench_bcd1
+    stz bench_bcd2
     rts
 .endproc
 
 .proc platform_benchmark_tick
-    ; NTSC SNES frame ~= 16.639 ms.
-    lda #16
-    sta bench_count
+    ; NTSC SNES frame ~= 16.639 ms. Keep the fractional part in binary and
+    ; add 16 or 17 ms to a packed-BCD millisecond counter.
     clc
     lda bench_frac
     adc #164
     sta bench_frac
-    bcc @add
-    inc bench_count
-@add:
-    jsr bench_add_one_ms
-    dec bench_count
-    bne @add
+    lda #$16
+    bcc :+
+    lda #$17
+:
+    sed
+    clc
+    adc bench_bcd0
+    sta bench_bcd0
+    lda bench_bcd1
+    adc #0
+    sta bench_bcd1
+    lda bench_bcd2
+    adc #0
+    sta bench_bcd2
+    cld
     rts
 .endproc
 
 .proc platform_benchmark_show
-    ; The shared progress code may call this outside VBlank. SNES VRAM writes
-    ; are therefore deferred to snes_benchmark_draw from platform_video_begin.
+    ; Shared progress may call this outside VBlank. Actual SNES VRAM writes
+    ; are deferred to snes_benchmark_draw from platform_video_begin.
+    rts
+.endproc
+
+.proc snes_put_digit
+    clc
+    adc #FONT_TILE_BASE
+    sta VMDATAL
+    stz VMDATAH
     rts
 .endproc
 
@@ -100,16 +81,34 @@ bench_d4:    .res 1
     sta VMADDL
     lda #>OVERLAY_VRAM
     sta VMADDH
-    ldx #0
-@digits:
-    lda bench_d0,x
-    clc
-    adc #FONT_TILE_BASE
-    sta VMDATAL
-    stz VMDATAH
-    inx
-    cpx #5
-    bne @digits
+
+    ; Five visible decimal digits: ten-thousands through units.
+    lda bench_bcd2
+    and #$0f
+    jsr snes_put_digit
+
+    lda bench_bcd1
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    jsr snes_put_digit
+
+    lda bench_bcd1
+    and #$0f
+    jsr snes_put_digit
+
+    lda bench_bcd0
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    jsr snes_put_digit
+
+    lda bench_bcd0
+    and #$0f
+    jsr snes_put_digit
+
     lda #FONT_M_TILE
     sta VMDATAL
     stz VMDATAH
