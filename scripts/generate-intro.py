@@ -261,6 +261,9 @@ def write_snes(path: Path, tiles: list[tuple[int, ...]], maps: list[bytes]) -> N
 
 
 def write_pce(tile_paths: list[Path], map_paths: list[Path], tiles: list[tuple[int, ...]], maps: list[bytes]) -> None:
+    if len(tile_paths) != 4 or len(map_paths) != 2:
+        raise ValueError("PCE intro layout requires four tile banks and two map banks")
+
     native = b"".join(encode_4bpp(tile) for tile in tiles)
     native = native.ljust(PCE_TILE_BANKS * PCE_BANK_BYTES, b"\x00")
 
@@ -287,8 +290,9 @@ def write_pce(tile_paths: list[Path], map_paths: list[Path], tiles: list[tuple[i
             lines.append(f"bd_intro_map_pce_{phase}:")
             emit_bytes(lines, maps[phase])
             lines.append("")
-        lines.append(f"bd_intro_map_pce_bytes = {MAP_BYTES}")
-        lines.append("")
+        if bank_index == 0:
+            lines.append(f"bd_intro_map_pce_bytes = {MAP_BYTES}")
+            lines.append("")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines), encoding="utf-8")
 
