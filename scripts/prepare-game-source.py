@@ -10,30 +10,11 @@ src = Path(sys.argv[1]).read_text()
 src = src.replace("CAVE_ROWS = 22\nCAVE_BYTES = 880", "CAVE_ROWS = 23\nCAVE_BYTES = 920", 1)
 src = src.replace("cpy #112", "cpy #152")
 
-# Cave starts need to center the shared view immediately.
+# Cave starts need to center the shared view immediately, not only after the
+# first player movement.
 src = src.replace(
     ".export game_render_cave\n",
     ".export game_render_cave\n.export game_update_view\n",
-    1,
-)
-
-# Cave 2 introduces the C64 firefly object and its one-pass marker forms.
-src = src.replace(
-    "T_STEEL          = $07\n",
-    "T_STEEL          = $07\n"
-    "T_FIREFLY0       = $08\n"
-    "T_FIREFLY1       = $09\n"
-    "T_FIREFLY2       = $0a\n"
-    "T_FIREFLY3       = $0b\n"
-    "T_FIREFLY0_      = $0c\n"
-    "T_FIREFLY1_      = $0d\n"
-    "T_FIREFLY2_      = $0e\n"
-    "T_FIREFLY3_      = $0f\n",
-    1,
-)
-src = src.replace(
-    "game_explosion_changed: .res 1\n",
-    "game_explosion_changed: .res 1\ngame_fire_dir:          .res 1\n",
     1,
 )
 
@@ -83,7 +64,28 @@ if old not in src:
     raise SystemExit("moving tile preservation block not found")
 src = src.replace(old, new, 1)
 
-# Normalize firefly marker tiles ($0c-$0f) at the start of the next cave pass.
+# Firefly constants and one temporary direction byte.
+src = src.replace(
+    "T_STEEL          = $07\n",
+    "T_STEEL          = $07\n"
+    "T_FIREFLY0       = $08\n"
+    "T_FIREFLY1       = $09\n"
+    "T_FIREFLY2       = $0a\n"
+    "T_FIREFLY3       = $0b\n"
+    "T_FIREFLY0_      = $0c\n"
+    "T_FIREFLY1_      = $0d\n"
+    "T_FIREFLY2_      = $0e\n"
+    "T_FIREFLY3_      = $0f\n",
+    1,
+)
+src = src.replace(
+    "game_explosion_changed: .res 1\n",
+    "game_explosion_changed: .res 1\ngame_fire_dir:          .res 1\n",
+    1,
+)
+
+# Normalize firefly marker tiles after one cave scan, exactly like the C64
+# replacement table maps $0c..$0f back to $08..$0b.
 src = src.replace(
     "@scan:\n    lda (game_zp_src),y\n    cmp #T_BOULDER_FIXED_\n",
     "@scan:\n"
@@ -247,8 +249,9 @@ firefly_code = r'''
     lda game_target_y
     sta game_point_y
     jsr game_get_point
-    bne @try_left
-
+    beq :+
+    jmp @try_left
+:
     lda game_fire_dir
     clc
     adc #3
@@ -265,8 +268,9 @@ firefly_code = r'''
     lda game_target_y
     sta game_point_y
     jsr game_get_point
-    bne @rotate
-
+    beq :+
+    jmp @rotate
+:
     lda game_fire_dir
     clc
     adc #T_FIREFLY0_
