@@ -5,13 +5,12 @@
 .import game_player_y
 .import game_player_alive
 .import game_video_dirty
+.import game_pad_pressed
 .import game_flow_init
+.import game_flow_restart_game
 .import game_flow_lose_life
 .import game_flow_add_time_bonus
 .import game_game_over
-.import platform_benchmark_reset
-.import platform_benchmark_tick
-.import platform_benchmark_show
 
 .export game_progress_init
 .export game_progress_tick
@@ -38,7 +37,6 @@ game_cave_time:           .res 1
     stz game_cave_complete
     lda #CAVE1_TIME_SECONDS
     sta game_cave_time
-    jsr platform_benchmark_reset
     rts
 .endproc
 
@@ -50,11 +48,20 @@ game_cave_time:           .res 1
 
 .proc game_progress_tick
     lda game_game_over
-    bne @done
+    beq @not_game_over
+
+    ; C64-style new-game restart point: after the final life, START begins a
+    ; fresh game with three lives, zero score, and Cave 1 restored.
+    lda game_pad_pressed
+    and #PAD_START
+    beq @done
+    jsr game_flow_restart_game
+    jsr game_progress_reset_attempt
+    rts
+
+@not_game_over:
     lda game_cave_complete
     bne @hold_result
-
-    jsr platform_benchmark_tick
 
     lda game_player_alive
     bne @check_exit
@@ -88,13 +95,12 @@ game_cave_time:           .res 1
     lda game_cave_time
     jsr game_flow_add_time_bonus
     stz game_cave_time
-    jsr platform_benchmark_show
     rts
 
 @hold_result:
-    lda #1
-    sta game_video_dirty
-    jsr platform_benchmark_show
+    ; Cave-complete state is deliberately stable now. The old benchmark/demo
+    ; overlay is gone; the next cave transition will be wired after Cave 2's
+    ; original geometry is represented safely in the shared cave buffer.
     rts
 
 @count_time:
