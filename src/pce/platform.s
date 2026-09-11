@@ -56,7 +56,9 @@ pce_raw_buttons: .res 1
     ; RGB mode, 5 MHz dot clock.
     stz VCE_CTRL
 
-    ; 256-ish pixel / 240-line bootstrap timing.
+    ; Known-good 256x224 timing used by established PCE examples.
+    ; Horizontal: HSR=$0202, HDR=$041f.
+    ; Vertical:   VPR=$0d07, VDW=$00df, VCR=$0003.
     lda #VDC_HSR
     ldx #$02
     ldy #$02
@@ -68,17 +70,17 @@ pce_raw_buttons: .res 1
     jsr vdc_write_xy
 
     lda #VDC_VSR
-    ldx #$02
-    ldy #$0f
+    ldx #$07
+    ldy #$0d
     jsr vdc_write_xy
 
     lda #VDC_VDR
-    ldx #$ef
+    ldx #$df
     ldy #$00
     jsr vdc_write_xy
 
     lda #VDC_VCR
-    ldx #$0c
+    ldx #$03
     ldy #$00
     jsr vdc_write_xy
 
@@ -171,7 +173,6 @@ pce_raw_buttons: .res 1
     bne @write_test_map
 
     ; Put the known solid tile at BAT row 10, column 10 (word $014a).
-    ; It should appear as one white 8x8 square even if the charset upload is bad.
     lda #VDC_MAWR
     ldx #$4a
     ldy #$01
@@ -186,10 +187,10 @@ pce_raw_buttons: .res 1
     ; BG palette 0: dark blue background, white foreground for C64 set pixels.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
-    lda #$03            ; palette $000 color 0 = dark blue
+    lda #$03
     sta VCE_DATA_L
     stz VCE_DATA_H
-    lda #$ff            ; palette $000 color 1 = white ($01ff)
+    lda #$ff
     sta VCE_DATA_L
     lda #$01
     sta VCE_DATA_H
