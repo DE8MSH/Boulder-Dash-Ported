@@ -5,6 +5,7 @@
 .include "../common/platform.inc"
 
 .import game_cave_render
+.import game_progress_tick
 
 INIDISP  = $2100
 BGMODE   = $2105
@@ -250,6 +251,7 @@ pad_result: .res 1
 .endproc
 
 .proc platform_audio_tick
+    jsr game_progress_tick
     ; Deferred milestone: SPC700/DSP music and SFX backend.
     rts
 .endproc
