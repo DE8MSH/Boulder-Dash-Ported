@@ -21,6 +21,8 @@
 .import game_render_cave
 
 .export game_flow_init
+.export game_flow_reset_attempt
+.export game_flow_restart_game
 .export game_flow_lose_life
 .export game_flow_add_time_bonus
 .export game_lives
@@ -48,6 +50,8 @@ game_game_over: .res 1
     lda #INITIAL_LIVES
     sta game_lives
     stz game_game_over
+    stz game_score_lo
+    stz game_score_hi
     rts
 .endproc
 
@@ -85,9 +89,6 @@ game_game_over: .res 1
 .endproc
 
 .proc game_flow_place_rockford
-    ; The generated Cave 1 still contains the original birth object at (3,4).
-    ; game_init replaces it with Rockford; a respawn must do the same or the
-    ; cave scan never encounters Rockford and controls appear frozen.
     lda #<(game_cave_state + CAVE1_PLAYER_OFFSET)
     sta flow_zp_dst
     lda #>(game_cave_state + CAVE1_PLAYER_OFFSET)
@@ -119,12 +120,16 @@ game_game_over: .res 1
     lda #1
     sta game_player_alive
 
-    ; Rebuild the shared render buffer before either console uploads the reset
-    ; cave. This keeps the logical cave and displayed cave in sync immediately.
     jsr game_render_cave
     lda #1
     sta game_video_dirty
     sta game_video_full_dirty
+    rts
+.endproc
+
+.proc game_flow_restart_game
+    jsr game_flow_init
+    jsr game_flow_reset_attempt
     rts
 .endproc
 
@@ -150,8 +155,7 @@ game_game_over: .res 1
 .endproc
 
 ; A contains the remaining cave seconds. Boulder Dash transfers the remaining
-; time into score after the exit is reached. The visual count-down animation
-; can be added with the status bar; the score result is already correct here.
+; time into score after the exit is reached.
 .proc game_flow_add_time_bonus
     clc
     adc game_score_lo
