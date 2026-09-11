@@ -10,11 +10,30 @@ src = Path(sys.argv[1]).read_text()
 src = src.replace("CAVE_ROWS = 22\nCAVE_BYTES = 880", "CAVE_ROWS = 23\nCAVE_BYTES = 920", 1)
 src = src.replace("cpy #112", "cpy #152")
 
-# Cave starts need to center the shared view immediately, not only after the
-# first player movement.
+# Cave starts need to center the shared view immediately.
 src = src.replace(
     ".export game_render_cave\n",
     ".export game_render_cave\n.export game_update_view\n",
+    1,
+)
+
+# Cave 2 introduces the C64 firefly object and its one-pass marker forms.
+src = src.replace(
+    "T_STEEL          = $07\n",
+    "T_STEEL          = $07\n"
+    "T_FIREFLY0       = $08\n"
+    "T_FIREFLY1       = $09\n"
+    "T_FIREFLY2       = $0a\n"
+    "T_FIREFLY3       = $0b\n"
+    "T_FIREFLY0_      = $0c\n"
+    "T_FIREFLY1_      = $0d\n"
+    "T_FIREFLY2_      = $0e\n"
+    "T_FIREFLY3_      = $0f\n",
+    1,
+)
+src = src.replace(
+    "game_explosion_changed: .res 1\n",
+    "game_explosion_changed: .res 1\ngame_fire_dir:          .res 1\n",
     1,
 )
 
@@ -63,6 +82,233 @@ new = """.proc game_physics_move_to_target
 if old not in src:
     raise SystemExit("moving tile preservation block not found")
 src = src.replace(old, new, 1)
+
+# Normalize firefly marker tiles ($0c-$0f) at the start of the next cave pass.
+src = src.replace(
+    "@scan:\n    lda (game_zp_src),y\n    cmp #T_BOULDER_FIXED_\n",
+    "@scan:\n"
+    "    lda (game_zp_src),y\n"
+    "    cmp #T_FIREFLY0_\n"
+    "    bcc :+\n"
+    "    cmp #(T_FIREFLY3_ + 1)\n"
+    "    bcs :+\n"
+    "    sec\n"
+    "    sbc #4\n"
+    "    bra @store\n"
+    ":\n"
+    "    cmp #T_BOULDER_FIXED_\n",
+    1,
+)
+src = src.replace(
+    "@tail:\n    lda (game_zp_src),y\n    cmp #T_BOULDER_FIXED_\n",
+    "@tail:\n"
+    "    lda (game_zp_src),y\n"
+    "    cmp #T_FIREFLY0_\n"
+    "    bcc :+\n"
+    "    cmp #(T_FIREFLY3_ + 1)\n"
+    "    bcs :+\n"
+    "    sec\n"
+    "    sbc #4\n"
+    "    bra @tail_store\n"
+    ":\n"
+    "    cmp #T_BOULDER_FIXED_\n",
+    1,
+)
+
+firefly_code = r'''
+; C64 firefly rule: explode when Rockford is orthogonally adjacent. Otherwise
+; try the direction from TabFliesMoveTargPosDo, then TabFliesMoveTargPosLe;
+; if both are blocked rotate in place. Marker tiles prevent a second move in
+; the same top-to-bottom cave scan.
+.proc game_firefly_touching_player
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    dec a
+    sta game_point_y
+    jsr game_get_point
+    cmp #T_ROCKFORD
+    beq @yes
+
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    inc a
+    sta game_point_y
+    jsr game_get_point
+    cmp #T_ROCKFORD
+    beq @yes
+
+    lda game_phys_x
+    dec a
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    jsr game_get_point
+    cmp #T_ROCKFORD
+    beq @yes
+
+    lda game_phys_x
+    inc a
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    jsr game_get_point
+    cmp #T_ROCKFORD
+    beq @yes
+    clc
+    rts
+@yes:
+    sec
+    rts
+.endproc
+
+.proc game_firefly_target_do
+    lda game_phys_x
+    sta game_target_x
+    lda game_phys_y
+    sta game_target_y
+    lda game_fire_dir
+    beq @down
+    cmp #1
+    beq @left
+    cmp #2
+    beq @up
+    inc game_target_x
+    rts
+@down:
+    inc game_target_y
+    rts
+@left:
+    dec game_target_x
+    rts
+@up:
+    dec game_target_y
+    rts
+.endproc
+
+.proc game_firefly_target_left
+    lda game_phys_x
+    sta game_target_x
+    lda game_phys_y
+    sta game_target_y
+    lda game_fire_dir
+    beq @left
+    cmp #1
+    beq @up
+    cmp #2
+    beq @right
+    inc game_target_y
+    rts
+@left:
+    dec game_target_x
+    rts
+@up:
+    dec game_target_y
+    rts
+@right:
+    inc game_target_x
+    rts
+.endproc
+
+; A = firefly marker tile to place at target.
+.proc game_firefly_move
+    pha
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    lda #T_EMPTY
+    jsr game_set_point
+
+    lda game_target_x
+    sta game_point_x
+    lda game_target_y
+    sta game_point_y
+    pla
+    jsr game_set_point
+    jsr game_mark_full_dirty
+    rts
+.endproc
+
+.proc game_firefly_step
+    and #$03
+    sta game_fire_dir
+
+    jsr game_firefly_touching_player
+    bcc @move
+    jsr game_explode_drop
+    rts
+
+@move:
+    jsr game_firefly_target_do
+    lda game_target_x
+    sta game_point_x
+    lda game_target_y
+    sta game_point_y
+    jsr game_get_point
+    bne @try_left
+
+    lda game_fire_dir
+    clc
+    adc #3
+    and #$03
+    clc
+    adc #T_FIREFLY0_
+    jsr game_firefly_move
+    rts
+
+@try_left:
+    jsr game_firefly_target_left
+    lda game_target_x
+    sta game_point_x
+    lda game_target_y
+    sta game_point_y
+    jsr game_get_point
+    bne @rotate
+
+    lda game_fire_dir
+    clc
+    adc #T_FIREFLY0_
+    jsr game_firefly_move
+    rts
+
+@rotate:
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    lda game_fire_dir
+    clc
+    adc #1
+    and #$03
+    clc
+    adc #T_FIREFLY0_
+    jsr game_set_point
+    jsr game_mark_full_dirty
+    rts
+.endproc
+
+'''
+anchor = ".proc game_physics_step\n"
+if anchor not in src:
+    raise SystemExit("physics step anchor not found")
+src = src.replace(anchor, firefly_code + anchor, 1)
+
+# Dispatch active fireflies before boulder/diamond handling.
+src = src.replace(
+    "    jsr game_get_point\n    cmp #T_BOULDER_FIXED\n",
+    "    jsr game_get_point\n"
+    "    cmp #T_FIREFLY0\n"
+    "    bcc :+\n"
+    "    cmp #(T_FIREFLY3 + 1)\n"
+    "    bcs :+\n"
+    "    jsr game_firefly_step\n"
+    "    jmp @next\n"
+    ":\n"
+    "    cmp #T_BOULDER_FIXED\n",
+    1,
+)
 
 # Cave 2 uses 20 points per required diamond and 50 afterwards.
 src = src.replace(
