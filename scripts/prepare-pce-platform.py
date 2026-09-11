@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare the PCE platform source with native intro and C64 tile animation."""
+"""Prepare the PCE platform source with native C64 intro/game animations."""
 
 from pathlib import Path
 import re
@@ -11,7 +11,8 @@ src = src.replace(
     "CAVE_RENDER_BYTES = 32 * 28 * 2\n",
     "CAVE_RENDER_BYTES = 32 * 28 * 2\n"
     "DIAMOND_TOP_WORD = $0880\n"
-    "DIAMOND_BOTTOM_WORD = $0980\n",
+    "DIAMOND_BOTTOM_WORD = $0980\n"
+    "INTRO_MAP_BYTES = $0800\n",
     1,
 )
 
@@ -19,13 +20,93 @@ src = src.replace(
     "pce_palette_cave:.res 1\n",
     "pce_palette_cave:    .res 1\n"
     "pce_diamond_phase:   .res 1\n"
-    "pce_diamond_cadence: .res 1\n",
+    "pce_diamond_cadence: .res 1\n"
+    "pce_intro_phase:     .res 1\n"
+    "pce_intro_accum:     .res 1\n",
     1,
 )
 
-native_intro = r'''.proc pce_upload_intro
-    ; Intro graphics use the same native 32-byte 4bpp tile format as the
-    ; known-good gameplay charset. Each full HuCard bank contains 256 tiles.
+native_intro = r'''.proc pce_upload_intro_map_frame
+    ; Maps 0-3 occupy physical HuCard bank 6, maps 4-7 bank 7.
+    lda pce_intro_phase
+    cmp #$04
+    bcc @bank6
+    lda #$07
+    bra @map_bank
+@bank6:
+    lda #$06
+@map_bank:
+    tam #$40
+
+    st0 #VDC_MAWR
+    st1 #$00
+    st2 #$00
+    st0 #VDC_DATA
+
+    lda pce_intro_phase
+    cmp #$00
+    bne :+
+    tia bd_intro_map_pce_0, VDC_DATA_L, INTRO_MAP_BYTES
+    rts
+:
+    cmp #$01
+    bne :+
+    tia bd_intro_map_pce_1, VDC_DATA_L, INTRO_MAP_BYTES
+    rts
+:
+    cmp #$02
+    bne :+
+    tia bd_intro_map_pce_2, VDC_DATA_L, INTRO_MAP_BYTES
+    rts
+:
+    cmp #$03
+    bne :+
+    tia bd_intro_map_pce_3, VDC_DATA_L, INTRO_MAP_BYTES
+    rts
+:
+    cmp #$04
+    bne :+
+    tia bd_intro_map_pce_4, VDC_DATA_L, INTRO_MAP_BYTES
+    rts
+:
+    cmp #$05
+    bne :+
+    tia bd_intro_map_pce_5, VDC_DATA_L, INTRO_MAP_BYTES
+    rts
+:
+    cmp #$06
+    bne :+
+    tia bd_intro_map_pce_6, VDC_DATA_L, INTRO_MAP_BYTES
+    rts
+:
+    tia bd_intro_map_pce_7, VDC_DATA_L, INTRO_MAP_BYTES
+    rts
+.endproc
+
+.proc pce_tick_intro_animation
+    ; C64 changes the moving title characters every 4 PAL frames = 12.5 Hz.
+    ; The PCE timer loop is about 60 Hz, so 5/24 gives the same average rate.
+    lda pce_intro_accum
+    clc
+    adc #$05
+    cmp #$18
+    bcc @store
+    sbc #$18
+    sta pce_intro_accum
+    inc pce_intro_phase
+    lda pce_intro_phase
+    and #$07
+    sta pce_intro_phase
+    jsr pce_upload_intro_map_frame
+    rts
+@store:
+    sta pce_intro_accum
+    rts
+.endproc
+
+.proc pce_upload_intro
+    ; Static title graphics occupy physical HuCard banks 2-5 and remain in
+    ; VRAM. Animation only changes the BAT, matching the C64 charset motion.
     lda #$02
     tam #$40
     st0 #VDC_MAWR
@@ -49,12 +130,9 @@ native_intro = r'''.proc pce_upload_intro
     st0 #VDC_DATA
     tia bd_intro_tiles_pce_part3, VDC_DATA_L, bd_intro_tiles_pce_part3_bytes
 
-    ; BAT is stored in the remainder of bank 5.
-    st0 #VDC_MAWR
-    st1 #$00
-    st2 #$00
-    st0 #VDC_DATA
-    tia bd_intro_map_pce, VDC_DATA_L, bd_intro_map_pce_bytes
+    stz pce_intro_phase
+    stz pce_intro_accum
+    jsr pce_upload_intro_map_frame
     rts
 .endproc
 
@@ -71,8 +149,8 @@ src = src[: match.start()] + native_intro + ".proc pce_upload_game_tiles\n" + sr
 
 animation_code = r'''
 .proc pce_upload_diamond_frame
-    ; Bank 1 contains both the normal gameplay charset and these generated
-    ; animation frames. Keep it mapped in MPR6 at $C000-$DFFF.
+    ; Bank 1 contains both the normal gameplay charset and generated original
+    ; C64 diamond phases. Keep it mapped in MPR6 at $C000-$DFFF.
     lda #$01
     tam #$40
 
@@ -114,8 +192,7 @@ animation_code = r'''
 .endproc
 
 .proc pce_tick_diamond_animation
-    ; Original PAL C64 animation runs on the 50 Hz IRQ. The PCE timer loop is
-    ; about 60 Hz, so omit one animation step every six console frames.
+    ; Preserve the PAL C64's 50 Hz graphics update rate on the ~60 Hz PCE loop.
     inc pce_diamond_cadence
     lda pce_diamond_cadence
     cmp #$06
@@ -137,6 +214,17 @@ marker = ".proc platform_init\n"
 if marker not in src:
     raise SystemExit("PCE platform_init marker not found")
 src = src.replace(marker, animation_code + marker, 1)
+
+old = "@intro_wait:\n    jsr platform_wait_frame\n    jsr platform_read_pad\n"
+new = (
+    "@intro_wait:\n"
+    "    jsr platform_wait_frame\n"
+    "    jsr pce_tick_intro_animation\n"
+    "    jsr platform_read_pad\n"
+)
+if old not in src:
+    raise SystemExit("PCE intro-wait marker not found")
+src = src.replace(old, new, 1)
 
 old = "    jsr pce_upload_game_tiles\n    jsr pce_upload_cave\n"
 new = (
@@ -182,7 +270,13 @@ new_tail = '''.segment "BANK1_RODATA"
 .include "../../build/generated/pce/intro-bank4.inc"
 
 .segment "INTRO5_RODATA"
-.include "../../build/generated/pce/intro-bank5.inc"'''
+.include "../../build/generated/pce/intro-bank5.inc"
+
+.segment "INTRO6_RODATA"
+.include "../../build/generated/pce/intro-bank6.inc"
+
+.segment "INTRO7_RODATA"
+.include "../../build/generated/pce/intro-bank7.inc"'''
 if old_tail not in src:
     raise SystemExit("PCE intro segment tail not found")
 src = src.replace(old_tail, new_tail, 1)
