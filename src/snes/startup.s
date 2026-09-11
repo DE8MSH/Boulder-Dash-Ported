@@ -38,7 +38,7 @@
     .byte "BOULDER DASH PORT    " ; 21 bytes
     .byte $20                   ; LoROM, slow ROM
     .byte $00                   ; ROM only
-    .byte $06                   ; 64 KiB ROM (two 32 KiB LoROM banks)
+    .byte $07                   ; 128 KiB ROM (four 32 KiB LoROM banks)
     .byte $00                   ; no SRAM
     .byte $02                   ; Europe/PAL region code
     .byte $00                   ; licensee
