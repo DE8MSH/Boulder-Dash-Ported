@@ -8,6 +8,7 @@
 .global platform_init
 .global platform_wait_frame
 .global platform_read_pad
+.global platform_video_tick
 .global platform_video_begin
 .global platform_video_end
 .global platform_audio_tick
