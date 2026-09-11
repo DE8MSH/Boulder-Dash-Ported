@@ -1,10 +1,11 @@
-.export game_cave_view
-.export game_cave_view_width
-.export game_cave_view_height
+.export game_cave_initial
+.export game_cave_cols
+.export game_cave_rows
+.export game_cave_bytes
 
 ; Generated from the original Boulder Dash I Cave 1 seed/probability data and
-; variable draw commands. The generator advances the full 40-column RNG stream
-; even though the current console viewport only displays columns 0..31.
+; variable draw commands. The full 40x22 logical cave is copied to RAM by the
+; shared game core so both console backends render the same mutable state.
 
 .segment "RODATA"
 .include "../../build/generated/common/cave1.inc"
