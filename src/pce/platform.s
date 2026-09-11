@@ -191,7 +191,7 @@ pce_raw_buttons: .res 1
     stz pad_result
 
     ; Direction nibble with SEL=1:
-    ; d3 Left, d2 Right, d1 Down, d0 Up.
+    ; d3 Left, d2 Down, d1 Right, d0 Up.
     lda pce_raw_dpad
     and #%00001000
     beq :+
@@ -200,7 +200,7 @@ pce_raw_buttons: .res 1
     sta pad_result
 :
     lda pce_raw_dpad
-    and #%00000100
+    and #%00000010
     beq :+
     lda pad_result
     ora #PAD_RIGHT
@@ -214,7 +214,7 @@ pce_raw_buttons: .res 1
     sta pad_result
 :
     lda pce_raw_dpad
-    and #%00000010
+    and #%00000100
     beq :+
     lda pad_result
     ora #PAD_DOWN
