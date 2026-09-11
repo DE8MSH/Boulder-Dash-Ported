@@ -56,31 +56,41 @@ game_cave_time:           .res 1
 
     lda game_pad_pressed
     and #PAD_START
-    beq @done
+    bne :+
+    jmp @done
+:
     jsr game_flow_restart_game
     jsr game_progress_reset_attempt
     rts
 
 @not_game_over:
     lda game_cave_complete
-    bne @hold_result
+    beq :+
+    jmp @hold_result
+:
 
     lda game_player_alive
     bne @check_exit
     inc game_progress_death_wait
     lda game_progress_death_wait
     cmp #DEATH_WAIT_FRAMES
-    bcc @done
+    bcs :+
+    jmp @done
+:
     jsr game_flow_lose_life
     lda game_game_over
-    bne @done
+    beq :+
+    jmp @done
+:
     jsr game_progress_reset_attempt
     rts
 
 @check_exit:
     stz game_progress_death_wait
     lda game_exit_open
-    beq @count_time
+    bne :+
+    jmp @count_time
+:
 
     lda game_current_cave
     cmp #2
@@ -88,19 +98,27 @@ game_cave_time:           .res 1
 
     lda game_player_x
     cmp #CAVE1_EXIT_X
-    bne @count_time
+    beq :+
+    jmp @count_time
+:
     lda game_player_y
     cmp #CAVE1_EXIT_Y
-    bne @count_time
+    beq :+
+    jmp @count_time
+:
     bra @cave_finished
 
 @check_cave2_exit:
     lda game_player_x
     cmp #CAVE2_EXIT_X
-    bne @count_time
+    beq :+
+    jmp @count_time
+:
     lda game_player_y
     cmp #CAVE2_EXIT_Y
-    bne @count_time
+    beq :+
+    jmp @count_time
+:
 
 @cave_finished:
     lda game_cave_time
