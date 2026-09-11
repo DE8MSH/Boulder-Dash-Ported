@@ -408,8 +408,6 @@ game_tile_char_map:
 .endproc
 
 .proc game_collect_diamond
-    ; GameAddScore is called before GameDiaGotInc in the original. Therefore
-    ; the diamond that reaches the quota still receives the normal value.
     lda game_diamonds_got
     cmp game_diamonds_needed
     bcc @normal
@@ -428,8 +426,6 @@ game_tile_char_map:
     rts
 .endproc
 
-; Explosion phases share the normal cave scan so we do not add another 880-byte
-; pass. Original empty explosion sequence is $1b,$1c,$1d,$1e,$1f -> empty.
 .proc game_physics_normalize
     stz game_explosion_changed
     lda #<game_cave_state
@@ -589,7 +585,6 @@ game_tile_char_map:
     rts
 .endproc
 
-; Write one explosion tile unless the destination is a steel wall.
 .proc game_explosion_write
     sta game_phys_new_tile
     jsr game_get_point
@@ -601,9 +596,6 @@ game_tile_char_map:
     rts
 .endproc
 
-; DynExplodeDropHandler from the original affects a 3x3 area starting on the
-; falling object's row. It starts with Empty1 for left/centre, then Empty0 for
-; the remaining seven cells. Steel walls survive the blast.
 .proc game_explode_drop
     stz game_player_alive
 
@@ -867,26 +859,20 @@ game_tile_char_map:
     rts
 .endproc
 
-; Carry set if the fixed boulder at the target was successfully pushed.
 .proc game_try_push_boulder
     lda game_target_x
     cmp game_player_x
     bne :+
     jmp @no
 :
-
-    ; Only horizontal pushes are allowed.
     lda game_target_y
     cmp game_player_y
     beq :+
     jmp @no
 :
-
     lda game_target_x
     cmp game_player_x
     bcc @left
-
-    ; Push right: cell beyond target must be empty.
     lda game_target_x
     cmp #38
     bne :+
@@ -901,7 +887,6 @@ game_tile_char_map:
     jmp @no
 :
     bra @chance
-
 @left:
     lda game_target_x
     cmp #1
@@ -916,31 +901,26 @@ game_tile_char_map:
     beq :+
     jmp @no
 :
-
 @chance:
     jsr game_next_random
     and #$03
     beq :+
     jmp @no
 :
-
     lda #T_BOULDER_FIXED_
     jsr game_set_point
-
     lda game_player_x
     sta game_point_x
     lda game_player_y
     sta game_point_y
     lda #T_EMPTY
     jsr game_set_point
-
     lda game_target_x
     sta game_point_x
     lda game_target_y
     sta game_point_y
     lda #T_ROCKFORD
     jsr game_set_point
-
     lda game_target_x
     sta game_player_x
     lda game_target_y
@@ -960,7 +940,6 @@ game_tile_char_map:
     lda game_target_y
     sta game_point_y
     jsr game_get_point
-
     cmp #T_EMPTY
     beq @allowed
     cmp #T_SOIL
@@ -971,13 +950,10 @@ game_tile_char_map:
     beq @allowed
     cmp #T_BOULDER_FIXED
     bne @blocked
-
     jsr game_try_push_boulder
     rts
-
 @diamond:
     jsr game_collect_diamond
-
 @allowed:
     lda game_player_x
     sta game_point_x
@@ -985,14 +961,12 @@ game_tile_char_map:
     sta game_point_y
     lda #T_EMPTY
     jsr game_set_point
-
     lda game_target_x
     sta game_point_x
     lda game_target_y
     sta game_point_y
     lda #T_ROCKFORD
     jsr game_set_point
-
     lda game_target_x
     sta game_player_x
     lda game_target_y
@@ -1021,7 +995,6 @@ game_tile_char_map:
     lda game_player_y
     sta game_target_y
     jmp game_try_move
-
 @right:
     lda game_pad_pressed
     and #PAD_RIGHT
@@ -1035,7 +1008,6 @@ game_tile_char_map:
     lda game_player_y
     sta game_target_y
     jmp game_try_move
-
 @up:
     lda game_pad_pressed
     and #PAD_UP
@@ -1049,7 +1021,6 @@ game_tile_char_map:
     lda game_player_x
     sta game_target_x
     jmp game_try_move
-
 @down:
     lda game_pad_pressed
     and #PAD_DOWN
@@ -1082,16 +1053,13 @@ game_tile_char_map:
     sta game_score_lo
     sta game_score_hi
     sta game_exit_open
-
     lda #1
     sta game_player_alive
     lda #CAVE1_DIAMONDS_NEEDED
     sta game_diamonds_needed
     lda #$5a
     sta game_random
-
     jsr game_copy_initial_cave
-
     lda #3
     sta game_player_x
     sta game_point_x
@@ -1102,7 +1070,6 @@ game_tile_char_map:
     ldy #0
     lda #T_ROCKFORD
     sta (game_zp_src),y
-
     jsr game_update_view
     jsr game_render_cave
     jsr platform_init
@@ -1112,18 +1079,31 @@ game_tile_char_map:
 .proc game_tick
     stz game_video_full_dirty
 
+    ; First sample handles input that was already present at the start of the
+    ; frame. Edge detection still guarantees one logical move per press.
     lda game_pad_current
     sta game_pad_previous
     jsr platform_read_pad
     sta game_pad_current
-
     lda game_pad_previous
     eor #$ff
     and game_pad_current
     sta game_pad_pressed
-
     jsr game_handle_player
+
+    ; Physics is the longest CPU section. A quick press can happen while the
+    ; cave scan is running, so sample once more immediately afterwards instead
+    ; of waiting until the next complete frame.
     jsr game_physics_step
+    lda game_pad_current
+    sta game_pad_previous
+    jsr platform_read_pad
+    sta game_pad_current
+    lda game_pad_previous
+    eor #$ff
+    and game_pad_current
+    sta game_pad_pressed
+    jsr game_handle_player
 
     lda game_video_dirty
     beq @render_ready
