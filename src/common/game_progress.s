@@ -53,7 +53,7 @@ game_cave_time:            .res 1
     lda game_game_over
     bne @done
     lda game_cave_complete
-    bne @done
+    bne @show_done
 
     ; One call per host frame. Each backend converts its actual pacing source
     ; into milliseconds so SNES and PCE results can be compared directly.
@@ -91,9 +91,10 @@ game_cave_time:            .res 1
     jsr game_flow_add_time_bonus
     stz game_cave_time
 
-    ; We are still in the frame reached via platform_wait_frame. Put the final
-    ; first-run time directly into the top-right BG/BAT cells and leave it
-    ; there after completion.
+@show_done:
+    ; Cave physics can still dirty the display after Rockford reaches the exit.
+    ; Redraw the frozen result after every host frame so a later full BAT/BG
+    ; upload cannot erase the benchmark overlay.
     jsr platform_benchmark_show
     rts
 
