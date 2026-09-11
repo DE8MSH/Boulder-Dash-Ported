@@ -56,6 +56,15 @@ pce_raw_buttons: .res 1
     ; RGB mode, 5 MHz dot clock.
     stz VCE_CTRL
 
+    ; Define VDC control BEFORE touching VRAM. CR bits 12-11 select MAWR
+    ; auto-increment; $0000 guarantees +1 word after each high-byte write.
+    ; Leaving the power-on value here made BAT/pattern uploads land at
+    ; unpredictable strides on emulators/hardware.
+    lda #VDC_CR
+    ldx #$00
+    ldy #$00
+    jsr vdc_write_xy
+
     ; Known-good 256x224 timing used by established PCE examples.
     ; Horizontal: HSR=$0202, HDR=$041f.
     ; Vertical:   VPR=$0d07, VDW=$00df, VCR=$0003.
@@ -204,6 +213,7 @@ pce_raw_buttons: .res 1
     stz VCE_DATA_H
 
     ; Enable VBlank event and background display; sprites remain off.
+    ; IW remains 00 here, so subsequent VRAM writes also keep +1 increment.
     lda #VDC_CR
     ldx #$88            ; BG enable + VBlank event
     ldy #$00
