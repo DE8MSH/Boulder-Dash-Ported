@@ -4,7 +4,8 @@
 
 .include "../common/platform.inc"
 
-; SNES CPU / PPU registers used by the port bootstrap.
+.import game_cave_view
+
 INIDISP  = $2100
 BGMODE   = $2105
 BG1SC    = $2107
@@ -33,9 +34,8 @@ pad_result: .res 1
 .proc platform_init
     sei
     clc
-    xce                 ; enter native 65C816 mode
+    xce
 
-    ; Keep the porting core deliberately 6502-like: 8-bit A/X/Y and DP=$0000.
     rep #$20
     .a16
     lda #$0000
@@ -43,12 +43,9 @@ pad_result: .res 1
     sep #$20
     .a8
 
-    ; Force blank while touching PPU/VRAM state.
     lda #$8f
     sta INIDISP
 
-    ; Mode 1, 8x8 BG tiles. BG1 tiles start at VRAM word $0000 and the
-    ; 32x32 BG1 tilemap starts at VRAM word $1000 (8 KiB byte offset).
     lda #$01
     sta BGMODE
     lda #$10
@@ -57,19 +54,16 @@ pad_result: .res 1
     stz TS
     stz SETINI
 
-    ; Zero BG1 scroll. Each scroll register must be written twice.
     stz BG1HOFS
     stz BG1HOFS
     stz BG1VOFS
     stz BG1VOFS
 
-    ; Sequential VRAM word access, increment after writing VMDATAH.
     lda #$80
     sta VMAIN
     stz VMADDL
     stz VMADDH
 
-    ; Upload the generated 4bpp Boulder Dash character set to VRAM $0000.
     rep #$10
     .i16
     ldx #$0000
@@ -83,7 +77,7 @@ pad_result: .res 1
     cpx #bd_charset_snes_bytes
     bne @upload_tiles
 
-    ; Clear all 32x32 BG1 tilemap entries at VRAM word $1000.
+    ; Clear the complete 32x32 BG1 tilemap first.
     stz VMADDL
     lda #$10
     sta VMADDH
@@ -94,43 +88,39 @@ pad_result: .res 1
     dex
     bne @clear_map
 
-    ; Put the converted characters 0..63 in the first two rows. A tilemap
-    ; entry is a 16-bit word; palette 0, normal priority/flip, tile index X.
+    ; Render the shared 32x22 Cave 1 viewport. Tile IDs map directly to the
+    ; first 64 converted Boulder Dash characters.
     stz VMADDL
     lda #$10
     sta VMADDH
     ldx #$0000
-@write_test_map:
-    txa
+@write_cave:
+    lda game_cave_view,x
     sta VMDATAL
     stz VMDATAH
     inx
-    cpx #bd_charset_snes_count
-    bne @write_test_map
+    cpx #704
+    bne @write_cave
 
     sep #$10
     .i8
 
-    ; Palette 0: dark-blue backdrop and white foreground pixels.
     stz CGADD
-    lda #$00            ; color 0 = BGR555 $3000
+    lda #$00
     sta CGDATA
     lda #$30
     sta CGDATA
-    lda #$ff            ; color 1 = BGR555 $7fff
+    lda #$ff
     sta CGDATA
     lda #$7f
     sta CGDATA
 
-    ; Enable BG1 on the main screen.
     lda #$01
     sta TM
 
-    ; Auto joypad read on, NMI/IRQ still off for this polling bootstrap.
     lda #%00000001
     sta NMITIMEN
 
-    ; Leave forced blank only during VBlank.
 @wait_vblank:
     lda HVBJOY
     bpl @wait_vblank
