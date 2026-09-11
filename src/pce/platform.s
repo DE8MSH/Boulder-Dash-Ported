@@ -501,5 +501,7 @@ pce_last_vdc_status:     .res 1
     rts
 .endproc
 
-.segment "RODATA"
+; The 124 converted C64 characters are the largest read-only asset. Keep them
+; in physical HuCard bank $01, permanently mapped by startup at $C000-$DFFF.
+.segment "BANK1_RODATA"
 .include "../../build/generated/pce/charset.inc"
