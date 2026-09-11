@@ -714,12 +714,16 @@ game_tile_char_map:
 .proc game_try_push_boulder
     lda game_target_x
     cmp game_player_x
-    beq @no
+    bne :+
+    jmp @no
+:
 
     ; Only horizontal pushes are allowed.
     lda game_target_y
     cmp game_player_y
-    bne @no
+    beq :+
+    jmp @no
+:
 
     lda game_target_x
     cmp game_player_x
@@ -728,30 +732,40 @@ game_tile_char_map:
     ; Push right: cell beyond target must be empty.
     lda game_target_x
     cmp #38
-    beq @no
+    bne :+
+    jmp @no
+:
     inc a
     sta game_point_x
     lda game_target_y
     sta game_point_y
     jsr game_get_point
-    bne @no
+    beq :+
+    jmp @no
+:
     bra @chance
 
 @left:
     lda game_target_x
     cmp #1
-    beq @no
+    bne :+
+    jmp @no
+:
     dec a
     sta game_point_x
     lda game_target_y
     sta game_point_y
     jsr game_get_point
-    bne @no
+    beq :+
+    jmp @no
+:
 
 @chance:
     jsr game_next_random
     and #$03
-    bne @no
+    beq :+
+    jmp @no
+:
 
     ; game_point_x/y still identify the free cell beyond the boulder.
     lda #T_BOULDER_FIXED_
