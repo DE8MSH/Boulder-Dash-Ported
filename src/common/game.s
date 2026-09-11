@@ -11,12 +11,16 @@
 .export game_cave_render
 .export game_player_x
 .export game_player_y
+.export game_view_x
+.export game_view_y
 
 CAVE_COLS = 40
 CAVE_ROWS = 22
 CAVE_BYTES = 880
 VIEW_OBJ_W = 16
 VIEW_OBJ_H = 14
+VIEW_MAX_X = CAVE_COLS - VIEW_OBJ_W
+VIEW_MAX_Y = CAVE_ROWS - VIEW_OBJ_H
 RENDER_CHAR_W = 32
 RENDER_CHAR_H = 28
 RENDER_BYTES = RENDER_CHAR_W * RENDER_CHAR_H * 2
@@ -38,6 +42,8 @@ game_target_x: .res 1
 game_target_y: .res 1
 game_point_x:  .res 1
 game_point_y:  .res 1
+game_view_x:   .res 1
+game_view_y:   .res 1
 
 game_render_row:  .res 1
 game_render_col:  .res 1
@@ -128,14 +134,48 @@ game_tile_char_map:
     rts
 .endproc
 
-; Expand the fixed 16x14 logical viewport to the original 2x2 C64 character
+.proc game_update_view
+    ; Keep Rockford roughly centred while clamping to the 40x22 cave bounds.
+    lda game_player_x
+    cmp #8
+    bcc @x_zero
+    sec
+    sbc #8
+    cmp #(VIEW_MAX_X + 1)
+    bcc @x_store
+    lda #VIEW_MAX_X
+@x_store:
+    sta game_view_x
+    bra @y_part
+@x_zero:
+    stz game_view_x
+
+@y_part:
+    lda game_player_y
+    cmp #7
+    bcc @y_zero
+    sec
+    sbc #7
+    cmp #(VIEW_MAX_Y + 1)
+    bcc @y_store
+    lda #VIEW_MAX_Y
+@y_store:
+    sta game_view_y
+    rts
+@y_zero:
+    stz game_view_y
+    rts
+.endproc
+
+; Expand the current 16x14 logical viewport to the original 2x2 C64 character
 ; layout. Each output cell is a 16-bit tilemap word using shared pattern base
 ; $40, which matches both platform VRAM layouts.
 .proc game_render_cave
-    lda #<game_cave_state
-    sta game_zp_src
-    lda #>game_cave_state
-    sta game_zp_src+1
+    lda game_view_x
+    sta game_point_x
+    lda game_view_y
+    sta game_point_y
+    jsr game_get_point_ptr
 
     lda #<game_cave_render
     sta game_zp_dst
@@ -203,7 +243,6 @@ game_tile_char_map:
     cmp #VIEW_OBJ_W
     bne @col
 
-    ; Next logical cave row; next pair of 32-character render rows.
     clc
     lda game_zp_src
     adc #CAVE_COLS
@@ -252,7 +291,6 @@ game_tile_char_map:
     bne @blocked
 
 @allowed:
-    ; Clear Rockford's old logical cell.
     lda game_player_x
     sta game_point_x
     lda game_player_y
@@ -262,7 +300,6 @@ game_tile_char_map:
     lda #$00
     sta (game_zp_src),y
 
-    ; Place Rockford at the target cell.
     lda game_target_x
     sta game_point_x
     lda game_target_y
@@ -276,6 +313,7 @@ game_tile_char_map:
     sta game_player_x
     lda game_target_y
     sta game_player_y
+    jsr game_update_view
 @blocked:
     rts
 .endproc
@@ -299,7 +337,7 @@ game_tile_char_map:
     and #PAD_RIGHT
     beq @up
     lda game_player_x
-    cmp #15                 ; current fixed 16-object viewport
+    cmp #38
     beq @done
     clc
     adc #1
@@ -327,7 +365,7 @@ game_tile_char_map:
     and #PAD_DOWN
     beq @done
     lda game_player_y
-    cmp #13                 ; current fixed 14-object viewport
+    cmp #20
     beq @done
     clc
     adc #1
@@ -345,6 +383,8 @@ game_tile_char_map:
     sta game_pad_current
     sta game_pad_previous
     sta game_pad_pressed
+    sta game_view_x
+    sta game_view_y
 
     jsr game_copy_initial_cave
 
@@ -361,6 +401,7 @@ game_tile_char_map:
     lda #$38
     sta (game_zp_src),y
 
+    jsr game_update_view
     jsr game_render_cave
     jsr platform_init
     rts
