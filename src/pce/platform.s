@@ -8,6 +8,7 @@
 .import game_view_x
 .import game_view_y
 .import game_video_full_dirty
+.import game_progress_tick
 
 VDC_STATUS  = $0000
 VDC_DATA_L  = $0002
@@ -454,6 +455,7 @@ pce_last_vdc_status:     .res 1
 .endproc
 
 .proc platform_audio_tick
+    jsr game_progress_tick
     ; Deferred milestone: HuC6280 PSG music and SFX backend.
     rts
 .endproc
