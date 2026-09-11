@@ -6,6 +6,7 @@
 
 .import game_cave_render
 .import game_progress_tick
+.import game_current_cave
 
 INIDISP  = $2100
 BGMODE   = $2105
@@ -37,8 +38,18 @@ DAS0H    = $4306
 
 CAVE_RENDER_BYTES = 32 * 28 * 2
 
+; Canonical C64 RGB approximations converted to SNES BGR555.
+; Cave 1 header: BG1=$08 orange, BG2=$0b dark gray, FG=$09 brown.
+C64_ORANGE_SN   = $1551
+C64_DARKGRAY_SN = $2529
+C64_BROWN_SN    = $00ea
+; Cave 2 header: BG1=$0a light red, BG2=$04 purple, FG=$09 brown.
+C64_LIGHTRED_SN = $39b8
+C64_PURPLE_SN   = $48f1
+
 .segment "BSS"
-pad_result: .res 1
+pad_result:        .res 1
+snes_palette_cave: .res 1
 
 .segment "CODE"
 
@@ -64,6 +75,54 @@ pad_result: .res 1
     sta DAS0H
     lda #$01
     sta MDMAEN
+    rts
+.endproc
+
+.proc snes_write_color
+    ; A=low byte, X=high byte of one BGR555 color.
+    sta CGDATA
+    txa
+    sta CGDATA
+    rts
+.endproc
+
+.proc snes_load_cave_palette
+    lda game_current_cave
+    cmp snes_palette_cave
+    beq @done
+    sta snes_palette_cave
+
+    stz CGADD
+    ; Palette index 0: C64 background/border black.
+    stz CGDATA
+    stz CGDATA
+
+    lda game_current_cave
+    cmp #2
+    beq @cave2
+
+    lda #<C64_ORANGE_SN
+    ldx #>C64_ORANGE_SN
+    jsr snes_write_color
+    lda #<C64_DARKGRAY_SN
+    ldx #>C64_DARKGRAY_SN
+    jsr snes_write_color
+    lda #<C64_BROWN_SN
+    ldx #>C64_BROWN_SN
+    jsr snes_write_color
+    rts
+
+@cave2:
+    lda #<C64_LIGHTRED_SN
+    ldx #>C64_LIGHTRED_SN
+    jsr snes_write_color
+    lda #<C64_PURPLE_SN
+    ldx #>C64_PURPLE_SN
+    jsr snes_write_color
+    lda #<C64_BROWN_SN
+    ldx #>C64_BROWN_SN
+    jsr snes_write_color
+@done:
     rts
 .endproc
 
@@ -128,21 +187,9 @@ pad_result: .res 1
 
     jsr snes_upload_cave
 
-    stz CGADD
-    stz CGDATA
-    stz CGDATA
-    lda #$fa
-    sta CGDATA
-    lda #$15
-    sta CGDATA
-    lda #$8c
-    sta CGDATA
-    lda #$31
-    sta CGDATA
-    lda #$6d
-    sta CGDATA
-    lda #$0d
-    sta CGDATA
+    lda #$ff
+    sta snes_palette_cave
+    jsr snes_load_cave_palette
 
     lda #$01
     sta TM
@@ -230,6 +277,9 @@ pad_result: .res 1
 .endproc
 
 .proc platform_video_begin
+    ; game_tick enters here in VBlank, so palette changes and VRAM DMA are
+    ; applied together without visible tearing when advancing to Cave 2.
+    jsr snes_load_cave_palette
     jsr snes_upload_cave
     rts
 .endproc
