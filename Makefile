@@ -29,7 +29,9 @@ assets: check
 
 snes-obj: assets
 	@mkdir -p build/snes
-	cd src/common && $(CA65) --cpu 65816 -D LOGIC_STEP=5 game.s -o ../../build/snes/game.o
+	$(PYTHON) scripts/prepare-timed-source.py game src/common/game.s src/common/.game-snes-build.s --step 5 --threshold 12
+	cd src/common && $(CA65) --cpu 65816 .game-snes-build.s -o ../../build/snes/game.o
+	@rm -f src/common/.game-snes-build.s
 	cd src/common && $(CA65) --cpu 65816 cave_preview.s -o ../../build/snes/cave_preview.o
 	cd src/snes && $(CA65) platform.s -o ../../build/snes/platform.o
 	cd src/snes && $(CA65) startup.s -o ../../build/snes/startup.o
@@ -37,9 +39,13 @@ snes-obj: assets
 
 pce-obj: assets
 	@mkdir -p build/pce
-	cd src/common && $(CA65) --cpu huc6280 -D LOGIC_STEP=4 game.s -o ../../build/pce/game.o
+	$(PYTHON) scripts/prepare-timed-source.py game src/common/game.s src/common/.game-pce-build.s --step 4 --threshold 12
+	cd src/common && $(CA65) --cpu huc6280 .game-pce-build.s -o ../../build/pce/game.o
+	@rm -f src/common/.game-pce-build.s
 	cd src/common && $(CA65) --cpu huc6280 cave_preview.s -o ../../build/pce/cave_preview.o
-	cd src/pce && $(CA65) platform.s -o ../../build/pce/platform.o
+	$(PYTHON) scripts/prepare-timed-source.py pce src/pce/platform.s src/pce/.platform-build.s --reload 0x7f
+	cd src/pce && $(CA65) .platform-build.s -o ../../build/pce/platform.o
+	@rm -f src/pce/.platform-build.s
 	cd src/pce && $(CA65) startup.s -o ../../build/pce/startup.o
 	@echo "built PCE objects (HuC6280)"
 
@@ -74,3 +80,4 @@ run-both: all check-emulator
 
 clean:
 	rm -rf build
+	rm -f src/common/.game-snes-build.s src/common/.game-pce-build.s src/pce/.platform-build.s
