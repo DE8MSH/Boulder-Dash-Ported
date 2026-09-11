@@ -13,10 +13,11 @@ VMADDH  = $2117
 VMDATAL = $2118
 VMDATAH = $2119
 
-; Charset slots $70-$7b are uploaded beginning at hardware tile $40.
-FONT_TILE_BASE = $b0
-FONT_M_TILE    = $ba
-FONT_S_TILE    = $bb
+; Charset slots $02-$0d are unused by every 2x2 cave tile quadrant.
+; The charset is uploaded beginning at hardware tile $40.
+FONT_TILE_BASE = $42
+FONT_M_TILE    = $4c
+FONT_S_TILE    = $4d
 OVERLAY_VRAM   = $1019
 
 .segment "BSS"
@@ -36,8 +37,7 @@ bench_bcd2: .res 1        ; hundred-thousands : ten-thousands
 .endproc
 
 .proc platform_benchmark_tick
-    ; NTSC SNES frame ~= 16.639 ms. Keep the fractional part in binary and
-    ; add 16 or 17 ms to a packed-BCD millisecond counter.
+    ; NTSC SNES frame ~= 16.639 ms.
     clc
     lda bench_frac
     adc #164
@@ -61,8 +61,6 @@ bench_bcd2: .res 1        ; hundred-thousands : ten-thousands
 .endproc
 
 .proc platform_benchmark_show
-    ; Shared progress may call this outside VBlank. Actual SNES VRAM writes
-    ; are deferred to snes_benchmark_draw from platform_video_begin.
     rts
 .endproc
 
@@ -82,7 +80,6 @@ bench_bcd2: .res 1        ; hundred-thousands : ten-thousands
     lda #>OVERLAY_VRAM
     sta VMADDH
 
-    ; Five visible decimal digits: ten-thousands through units.
     lda bench_bcd2
     and #$0f
     jsr snes_put_digit
