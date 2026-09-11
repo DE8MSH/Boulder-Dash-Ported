@@ -43,11 +43,13 @@ build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-sour
 	$(PYTHON) scripts/prepare-game-source.py src/common/game.s build/generated/common/game-build.s
 	$(PYTHON) scripts/fix-generated-branches.py build/generated/common/game-build.s
 
-build/generated/snes/platform-build.s: src/snes/platform.s scripts/prepare-snes-platform.py | assets
+build/generated/snes/platform-build.s: src/snes/platform.s scripts/prepare-snes-platform.py scripts/fix-generated-platform-video.py | assets
 	$(PYTHON) scripts/prepare-snes-platform.py src/snes/platform.s build/generated/snes/platform-build.s
+	$(PYTHON) scripts/fix-generated-platform-video.py snes build/generated/snes/platform-build.s
 
-build/generated/pce/platform-build.s: src/pce/platform.s scripts/prepare-pce-platform.py | assets
+build/generated/pce/platform-build.s: src/pce/platform.s scripts/prepare-pce-platform.py scripts/fix-generated-platform-video.py | assets
 	$(PYTHON) scripts/prepare-pce-platform.py src/pce/platform.s build/generated/pce/platform-build.s
+	$(PYTHON) scripts/fix-generated-platform-video.py pce build/generated/pce/platform-build.s
 
 snes-obj: assets build/generated/common/game-build.s build/generated/snes/platform-build.s
 	@mkdir -p build/snes
