@@ -21,46 +21,47 @@ FONT_S_TILE    = $4d
 OVERLAY_VRAM   = $1019
 
 .segment "BSS"
-bench_frac: .res 1
-bench_bcd0: .res 1        ; tens : units
-bench_bcd1: .res 1        ; thousands : hundreds
-bench_bcd2: .res 1        ; hundred-thousands : ten-thousands
+bench_frac:  .res 1
+bench_ms_lo: .res 1
+bench_ms_hi: .res 1
+bench_tmp_lo:.res 1
+bench_tmp_hi:.res 1
+bench_digit: .res 1
 
 .segment "CODE"
 
 .proc platform_benchmark_reset
     stz bench_frac
-    stz bench_bcd0
-    stz bench_bcd1
-    stz bench_bcd2
+    stz bench_ms_lo
+    stz bench_ms_hi
     rts
 .endproc
 
 .proc platform_benchmark_tick
-    ; NTSC SNES frame ~= 16.639 ms.
+    ; NTSC SNES frame ~= 16.639 ms. Keep elapsed time as a plain binary
+    ; millisecond counter. Avoid CPU decimal mode entirely: it made the
+    ; on-screen benchmark dependent on processor-state details unrelated to
+    ; gameplay timing.
     clc
     lda bench_frac
     adc #164
     sta bench_frac
-    lda #$16
+    lda #16
     bcc :+
-    lda #$17
+    lda #17
 :
-    sed
     clc
-    adc bench_bcd0
-    sta bench_bcd0
-    lda bench_bcd1
+    adc bench_ms_lo
+    sta bench_ms_lo
+    lda bench_ms_hi
     adc #0
-    sta bench_bcd1
-    lda bench_bcd2
-    adc #0
-    sta bench_bcd2
-    cld
+    sta bench_ms_hi
     rts
 .endproc
 
 .proc platform_benchmark_show
+    ; Shared progress may call this outside VBlank. Actual SNES VRAM writes
+    ; are deferred to snes_benchmark_draw from platform_video_begin.
     rts
 .endproc
 
@@ -72,6 +73,37 @@ bench_bcd2: .res 1        ; hundred-thousands : ten-thousands
     rts
 .endproc
 
+; Subtract the 16-bit constant in A(low)/X(high) from bench_tmp while possible.
+; Returns the decimal digit in A and leaves the remainder in bench_tmp.
+.proc snes_extract_digit
+    sta @sub_lo+1
+    stx @sub_hi+1
+    stz bench_digit
+@again:
+    lda bench_tmp_hi
+    cmp @sub_hi+1
+    bcc @done
+    bne @subtract
+    lda bench_tmp_lo
+    cmp @sub_lo+1
+    bcc @done
+@subtract:
+    sec
+    lda bench_tmp_lo
+@sub_lo:
+    sbc #$00
+    sta bench_tmp_lo
+    lda bench_tmp_hi
+@sub_hi:
+    sbc #$00
+    sta bench_tmp_hi
+    inc bench_digit
+    bra @again
+@done:
+    lda bench_digit
+    rts
+.endproc
+
 .proc snes_benchmark_draw
     lda #$80
     sta VMAIN
@@ -80,30 +112,34 @@ bench_bcd2: .res 1        ; hundred-thousands : ten-thousands
     lda #>OVERLAY_VRAM
     sta VMADDH
 
-    lda bench_bcd2
-    and #$0f
+    lda bench_ms_lo
+    sta bench_tmp_lo
+    lda bench_ms_hi
+    sta bench_tmp_hi
+
+    ; Convert the frozen 16-bit millisecond count to five decimal digits.
+    ; Maximum displayed value is 65535 ms, more than enough for Cave 1.
+    lda #<10000
+    ldx #>10000
+    jsr snes_extract_digit
     jsr snes_put_digit
 
-    lda bench_bcd1
-    lsr a
-    lsr a
-    lsr a
-    lsr a
+    lda #<1000
+    ldx #>1000
+    jsr snes_extract_digit
     jsr snes_put_digit
 
-    lda bench_bcd1
-    and #$0f
+    lda #<100
+    ldx #>100
+    jsr snes_extract_digit
     jsr snes_put_digit
 
-    lda bench_bcd0
-    lsr a
-    lsr a
-    lsr a
-    lsr a
+    lda #10
+    ldx #0
+    jsr snes_extract_digit
     jsr snes_put_digit
 
-    lda bench_bcd0
-    and #$0f
+    lda bench_tmp_lo
     jsr snes_put_digit
 
     lda #FONT_M_TILE
