@@ -1,0 +1,7 @@
+build/
+*.o
+*.map
+*.sym
+*.sfc
+*.smc
+*.pce
