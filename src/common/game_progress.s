@@ -13,6 +13,7 @@
 .import platform_benchmark_tick
 .import platform_benchmark_show
 
+.export game_progress_init
 .export game_progress_tick
 .export game_cave_complete
 .export game_cave_time
@@ -24,11 +25,10 @@ FRAMES_PER_SECOND  = 60
 DEATH_WAIT_FRAMES  = 60
 
 .segment "BSS"
-game_progress_initialized: .res 1
-game_progress_frame:       .res 1
-game_progress_death_wait:  .res 1
-game_cave_complete:        .res 1
-game_cave_time:            .res 1
+game_progress_frame:      .res 1
+game_progress_death_wait: .res 1
+game_cave_complete:       .res 1
+game_cave_time:           .res 1
 
 .segment "CODE"
 
@@ -42,22 +42,18 @@ game_cave_time:            .res 1
     rts
 .endproc
 
-.proc game_progress_tick
-    lda game_progress_initialized
-    bne @initialized
-    lda #1
-    sta game_progress_initialized
+.proc game_progress_init
     jsr game_flow_init
     jsr game_progress_reset_attempt
+    rts
+.endproc
 
-@initialized:
+.proc game_progress_tick
     lda game_game_over
     bne @done
     lda game_cave_complete
     bne @hold_result
 
-    ; One call per host frame. Each backend converts its actual pacing source
-    ; into milliseconds so SNES and PCE results can be compared directly.
     jsr platform_benchmark_tick
 
     lda game_player_alive
@@ -96,8 +92,6 @@ game_cave_time:            .res 1
     rts
 
 @hold_result:
-    ; Keep scheduling a video pass after completion. PCE redraws the result
-    ; here; SNES defers the actual VRAM writes to its VBlank video path.
     lda #1
     sta game_video_dirty
     jsr platform_benchmark_show
