@@ -8,10 +8,11 @@ VDC_DATA_L = $0002
 VDC_MAWR   = $00
 VDC_DATA   = $02
 
-; Charset slots $70-$7b are uploaded beginning at hardware tile $40.
-FONT_TILE_BASE = $b0
-FONT_M_TILE    = $ba
-FONT_S_TILE    = $bb
+; Charset slots $02-$0d are unused by every 2x2 cave tile quadrant.
+; The charset is uploaded beginning at hardware tile $40.
+FONT_TILE_BASE = $42
+FONT_M_TILE    = $4c
+FONT_S_TILE    = $4d
 OVERLAY_BAT    = 25
 
 .segment "BSS"
@@ -33,8 +34,6 @@ bench_overlay: .res 14
 
 .proc platform_benchmark_tick
     ; Current HuC6280 timer pacing is about 18.31 ms per host tick.
-    ; Keep the fractional .31 ms in binary, then add either 18 or 19 ms to
-    ; a packed-BCD millisecond counter.
     clc
     lda bench_frac
     adc #79
@@ -58,7 +57,6 @@ bench_overlay: .res 14
 .endproc
 
 .proc platform_benchmark_show
-    ; Render five decimal digits from packed BCD: d4 d3 d2 d1 d0.
     ldy #0
 
     lda bench_bcd2
