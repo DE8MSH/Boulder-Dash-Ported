@@ -224,7 +224,14 @@ pad_result: .res 1
 .endproc
 
 .proc platform_video_begin
+    ; A full 32x28 CPU tilemap upload is longer than one normal VBlank. Until
+    ; dirty-row/DMA uploads are implemented, force blank for the single frame
+    ; in which gameplay actually changed. This avoids split-screen tearing.
+    lda #$80
+    sta INIDISP
     jsr snes_upload_cave
+    lda #$0f
+    sta INIDISP
     rts
 .endproc
 
