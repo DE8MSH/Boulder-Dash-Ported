@@ -12,9 +12,10 @@ VMADDH  = $2117
 VMDATAL = $2118
 VMDATAH = $2119
 
-FONT_TILE_BASE = $70
-FONT_M_TILE    = $7a
-FONT_S_TILE    = $7b
+; Charset slots $70-$7b are uploaded beginning at hardware tile $40.
+FONT_TILE_BASE = $b0
+FONT_M_TILE    = $ba
+FONT_S_TILE    = $bb
 OVERLAY_VRAM   = $1019
 
 .segment "BSS"
