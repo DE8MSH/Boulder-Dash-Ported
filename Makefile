@@ -32,6 +32,7 @@ snes-obj: assets
 	$(PYTHON) scripts/prepare-timed-source.py game src/common/game.s src/common/.game-snes-build.s --step 5 --threshold 12
 	cd src/common && $(CA65) --cpu 65816 .game-snes-build.s -o ../../build/snes/game.o
 	@rm -f src/common/.game-snes-build.s
+	cd src/common && $(CA65) --cpu 65816 game_flow.s -o ../../build/snes/game_flow.o
 	cd src/common && $(CA65) --cpu 65816 game_progress.s -o ../../build/snes/game_progress.o
 	cd src/common && $(CA65) --cpu 65816 cave_preview.s -o ../../build/snes/cave_preview.o
 	cd src/snes && $(CA65) platform.s -o ../../build/snes/platform.o
@@ -43,6 +44,7 @@ pce-obj: assets
 	$(PYTHON) scripts/prepare-timed-source.py game src/common/game.s src/common/.game-pce-build.s --step 4 --threshold 12
 	cd src/common && $(CA65) --cpu huc6280 .game-pce-build.s -o ../../build/pce/game.o
 	@rm -f src/common/.game-pce-build.s
+	cd src/common && $(CA65) --cpu huc6280 game_flow.s -o ../../build/pce/game_flow.o
 	cd src/common && $(CA65) --cpu huc6280 game_progress.s -o ../../build/pce/game_progress.o
 	cd src/common && $(CA65) --cpu huc6280 cave_preview.s -o ../../build/pce/cave_preview.o
 	$(PYTHON) scripts/prepare-timed-source.py pce src/pce/platform.s src/pce/.platform-build.s --reload 0x7f
@@ -54,13 +56,13 @@ pce-obj: assets
 snes-rom: snes-obj
 	$(LD65) -C cfg/snes-lorom.cfg -m build/snes/boulder-dash.map \
 		-o build/snes/boulder-dash.sfc \
-		build/snes/startup.o build/snes/game.o build/snes/game_progress.o build/snes/cave_preview.o build/snes/platform.o
+		build/snes/startup.o build/snes/game.o build/snes/game_flow.o build/snes/game_progress.o build/snes/cave_preview.o build/snes/platform.o
 	@echo "built build/snes/boulder-dash.sfc"
 
 pce-rom: pce-obj
 	$(LD65) -C cfg/pce-hucard.cfg -m build/pce/boulder-dash.map \
 		-o build/pce/boulder-dash.pce \
-		build/pce/startup.o build/pce/game.o build/pce/game_progress.o build/pce/cave_preview.o build/pce/platform.o
+		build/pce/startup.o build/pce/game.o build/pce/game_flow.o build/pce/game_progress.o build/pce/cave_preview.o build/pce/platform.o
 	@echo "built build/pce/boulder-dash.pce"
 
 verify: all
