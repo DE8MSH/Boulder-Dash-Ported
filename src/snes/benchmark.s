@@ -21,12 +21,14 @@ FONT_S_TILE    = $4d
 OVERLAY_VRAM   = $1019
 
 .segment "BSS"
-bench_frac:  .res 1
-bench_ms_lo: .res 1
-bench_ms_hi: .res 1
-bench_tmp_lo:.res 1
-bench_tmp_hi:.res 1
-bench_digit: .res 1
+bench_frac:   .res 1
+bench_ms_lo:  .res 1
+bench_ms_hi:  .res 1
+bench_tmp_lo: .res 1
+bench_tmp_hi: .res 1
+bench_div_lo: .res 1
+bench_div_hi: .res 1
+bench_digit:  .res 1
 
 .segment "CODE"
 
@@ -39,9 +41,7 @@ bench_digit: .res 1
 
 .proc platform_benchmark_tick
     ; NTSC SNES frame ~= 16.639 ms. Keep elapsed time as a plain binary
-    ; millisecond counter. Avoid CPU decimal mode entirely: it made the
-    ; on-screen benchmark dependent on processor-state details unrelated to
-    ; gameplay timing.
+    ; millisecond counter. Avoid CPU decimal mode entirely.
     clc
     lda bench_frac
     adc #164
@@ -74,28 +74,27 @@ bench_digit: .res 1
 .endproc
 
 ; Subtract the 16-bit constant in A(low)/X(high) from bench_tmp while possible.
+; The divisor is stored in RAM; SNES ROM cannot be self-modified.
 ; Returns the decimal digit in A and leaves the remainder in bench_tmp.
 .proc snes_extract_digit
-    sta @sub_lo+1
-    stx @sub_hi+1
+    sta bench_div_lo
+    stx bench_div_hi
     stz bench_digit
 @again:
     lda bench_tmp_hi
-    cmp @sub_hi+1
+    cmp bench_div_hi
     bcc @done
     bne @subtract
     lda bench_tmp_lo
-    cmp @sub_lo+1
+    cmp bench_div_lo
     bcc @done
 @subtract:
     sec
     lda bench_tmp_lo
-@sub_lo:
-    sbc #$00
+    sbc bench_div_lo
     sta bench_tmp_lo
     lda bench_tmp_hi
-@sub_hi:
-    sbc #$00
+    sbc bench_div_hi
     sta bench_tmp_hi
     inc bench_digit
     bra @again
