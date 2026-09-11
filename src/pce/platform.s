@@ -52,11 +52,40 @@ pce_rel_x:         .res 1
 pce_rel_y:         .res 1
 pce_addr_lo:       .res 1
 pce_addr_hi:       .res 1
-pce_addr_buf:      .res 2
 pce_dirty_buf:     .res 4
 pce_strip_count:   .res 1
 
+; Executable HuC6280 RAM trampoline:
+;   ST0 #reg / ST1 #low / ST2 #high / RTS
+; Dynamic VDC register writes must use the dedicated HuC6280 instructions.
+pce_vdc_trampoline: .res 7
+
+.segment "RODATA"
+pce_vdc_trampoline_template:
+    .byte $03, $00, $13, $00, $23, $00, $60
+
 .segment "CODE"
+
+.proc pce_init_vdc_trampoline
+    ldx #$00
+@copy:
+    lda pce_vdc_trampoline_template,x
+    sta pce_vdc_trampoline,x
+    inx
+    cpx #$07
+    bne @copy
+    rts
+.endproc
+
+; Inputs: A = VDC register number, X = low byte, Y = high byte.
+; Writes the operands of ST0/ST1/ST2 in the RAM trampoline and executes it.
+.proc pce_write_vdc_reg
+    sta pce_vdc_trampoline+1
+    stx pce_vdc_trampoline+3
+    sty pce_vdc_trampoline+5
+    jsr pce_vdc_trampoline
+    rts
+.endproc
 
 .proc pce_upload_cave
     st0 #VDC_MAWR
@@ -70,7 +99,6 @@ pce_strip_count:   .res 1
 ; Upload one logical 16x16 cave object (2x2 BAT cells) from the current
 ; shared viewport into its physical position in the 32x32 circular BAT.
 .proc pce_upload_object
-    ; Source coordinates are relative to the current 16x14 render buffer.
     lda pce_obj_x
     sec
     sbc game_view_x
@@ -109,8 +137,8 @@ pce_strip_count:   .res 1
     adc #$00
     sta pce_zp_src+1
 
-    ; Physical BAT address is based on world object coordinates modulo the
-    ; 16x16 logical-object ring: ((y&15)*2)*32 + ((x&15)*2).
+    ; Physical BAT word address:
+    ; ((world_y & 15) * 2) * 32 + ((world_x & 15) * 2).
     lda pce_obj_y
     and #$0f
     sta pce_addr_lo
@@ -146,16 +174,14 @@ pce_strip_count:   .res 1
     lda (pce_zp_src),y
     sta pce_dirty_buf+3
 
-    lda pce_addr_lo
-    sta pce_addr_buf
-    lda pce_addr_hi
-    sta pce_addr_buf+1
-    st0 #VDC_MAWR
-    tia pce_addr_buf, VDC_DATA_L, 2
+    lda #VDC_MAWR
+    ldx pce_addr_lo
+    ldy pce_addr_hi
+    jsr pce_write_vdc_reg
     st0 #VDC_DATA
     tia pce_dirty_buf, VDC_DATA_L, 4
 
-    ; Bottom two cells are one 32-cell BAT row lower and 64 source bytes later.
+    ; Bottom two cells are one BAT row lower and 64 source bytes later.
     clc
     lda pce_zp_src
     adc #$40
@@ -186,12 +212,10 @@ pce_strip_count:   .res 1
     lda (pce_zp_src),y
     sta pce_dirty_buf+3
 
-    lda pce_addr_lo
-    sta pce_addr_buf
-    lda pce_addr_hi
-    sta pce_addr_buf+1
-    st0 #VDC_MAWR
-    tia pce_addr_buf, VDC_DATA_L, 2
+    lda #VDC_MAWR
+    ldx pce_addr_lo
+    ldy pce_addr_hi
+    jsr pce_write_vdc_reg
     st0 #VDC_DATA
     tia pce_dirty_buf, VDC_DATA_L, 4
     rts
@@ -208,12 +232,10 @@ pce_strip_count:   .res 1
     rol pce_addr_hi
     dex
     bne @x_shift
-    lda pce_addr_lo
-    sta pce_addr_buf
-    lda pce_addr_hi
-    sta pce_addr_buf+1
-    st0 #VDC_BXR
-    tia pce_addr_buf, VDC_DATA_L, 2
+    lda #VDC_BXR
+    ldx pce_addr_lo
+    ldy pce_addr_hi
+    jsr pce_write_vdc_reg
 
     ; BYR = view_y * 16 pixels.
     lda game_view_y
@@ -225,12 +247,10 @@ pce_strip_count:   .res 1
     rol pce_addr_hi
     dex
     bne @y_shift
-    lda pce_addr_lo
-    sta pce_addr_buf
-    lda pce_addr_hi
-    sta pce_addr_buf+1
-    st0 #VDC_BYR
-    tia pce_addr_buf, VDC_DATA_L, 2
+    lda #VDC_BYR
+    ldx pce_addr_lo
+    ldy pce_addr_hi
+    jsr pce_write_vdc_reg
     rts
 .endproc
 
@@ -240,12 +260,10 @@ pce_strip_count:   .res 1
     beq @done
     bcc @left_edge
 
-    ; Scrolling right: upload the newly exposed rightmost logical column.
     clc
     adc #15
     bra @have_x
 @left_edge:
-    ; Scrolling left: upload the newly exposed leftmost logical column.
     lda game_view_x
 @have_x:
     sta pce_obj_x
@@ -268,12 +286,10 @@ pce_strip_count:   .res 1
     beq @done
     bcc @top_edge
 
-    ; Scrolling down: upload newly exposed bottom logical row.
     clc
     adc #13
     bra @have_y
 @top_edge:
-    ; Scrolling up: upload newly exposed top logical row.
     lda game_view_y
 @have_y:
     sta pce_obj_y
@@ -293,6 +309,8 @@ pce_strip_count:   .res 1
 .proc platform_init
     sei
     csh
+
+    jsr pce_init_vdc_trampoline
 
     stz VCE_CTRL
 
@@ -338,7 +356,7 @@ pce_strip_count:   .res 1
     st0 #VDC_DATA
     tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
 
-    ; Initial 32x32 BAT setup may be done while display is still disabled.
+    ; Initial 32x32 BAT setup while display is disabled.
     st0 #VDC_MAWR
     st1 #$00
     st2 #$00
@@ -371,7 +389,6 @@ pce_strip_count:   .res 1
     sta VCE_DATA_L
     stz VCE_DATA_H
 
-    ; Backdrop/border black.
     stz VCE_ADDR_L
     lda #$01
     sta VCE_ADDR_H
@@ -391,7 +408,6 @@ pce_strip_count:   .res 1
     lda game_view_y
     sta pce_last_view_y
 
-    ; Reset controller scan chain.
     lda #$01
     sta JOYPAD
     lda #$03
@@ -495,7 +511,6 @@ pce_strip_count:   .res 1
 .endproc
 
 .proc platform_video_begin
-    ; Always update Rockford's old and new cells in the circular BAT.
     lda pce_last_player_x
     sta pce_obj_x
     lda pce_last_player_y
@@ -508,8 +523,6 @@ pce_strip_count:   .res 1
     sta pce_obj_y
     jsr pce_upload_object
 
-    ; A scrolling viewport only exposes two new character columns/rows. Fill
-    ; those strips instead of ever doing a runtime full-BAT transfer.
     jsr pce_upload_horizontal_edge
     jsr pce_upload_vertical_edge
     jsr pce_set_scroll
