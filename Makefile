@@ -38,6 +38,9 @@ build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-sour
 	$(PYTHON) scripts/prepare-game-source.py src/common/game.s build/generated/common/game-build.s
 	$(PYTHON) scripts/fix-generated-branches.py build/generated/common/game-build.s
 
+build/generated/pce/platform-build.s: src/pce/platform.s scripts/prepare-pce-platform.py | assets
+	$(PYTHON) scripts/prepare-pce-platform.py src/pce/platform.s build/generated/pce/platform-build.s
+
 snes-obj: assets build/generated/common/game-build.s
 	@mkdir -p build/snes
 	cd src/common && $(CA65) --cpu 65816 ../../build/generated/common/game-build.s -I . -o ../../build/snes/game.o
@@ -49,14 +52,14 @@ snes-obj: assets build/generated/common/game-build.s
 	cd src/snes && $(CA65) startup.s -o ../../build/snes/startup.o
 	@echo "built SNES objects (65C816)"
 
-pce-obj: assets build/generated/common/game-build.s
+pce-obj: assets build/generated/common/game-build.s build/generated/pce/platform-build.s
 	@mkdir -p build/pce
 	cd src/common && $(CA65) --cpu huc6280 ../../build/generated/common/game-build.s -I . -o ../../build/pce/game.o
 	cd src/common && $(CA65) --cpu huc6280 game_caves_runtime.s -o ../../build/pce/game_caves_runtime.o
 	cd src/common && $(CA65) --cpu huc6280 game_flow.s -o ../../build/pce/game_flow.o
 	cd src/common && $(CA65) --cpu huc6280 game_progress.s -o ../../build/pce/game_progress.o
 	cd src/common && $(CA65) --cpu huc6280 cave_preview.s -o ../../build/pce/cave_preview.o
-	cd src/pce && $(CA65) platform.s -o ../../build/pce/platform.o
+	cd src/pce && $(CA65) ../../build/generated/pce/platform-build.s -I . -o ../../build/pce/platform.o
 	cd src/pce && $(CA65) startup.s -o ../../build/pce/startup.o
 	@echo "built PCE objects (HuC6280)"
 
