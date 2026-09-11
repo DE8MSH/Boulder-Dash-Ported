@@ -26,6 +26,11 @@ assets: check
 	$(PYTHON) scripts/generate-cave1.py \
 		build/generated/common/cave1.inc \
 		build/generated/pce/cave1_bat.inc
+	$(PYTHON) scripts/generate-intro.py \
+		B1_Title.asm B1_ChrS.asm \
+		build/generated/snes/intro.inc \
+		build/generated/pce/intro-bank2.inc \
+		build/generated/pce/intro-bank3.inc
 
 build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-source.py scripts/fix-generated-branches.py | assets
 	$(PYTHON) scripts/prepare-game-source.py src/common/game.s build/generated/common/game-build.s
