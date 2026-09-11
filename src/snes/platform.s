@@ -38,14 +38,17 @@ DAS0H    = $4306
 
 CAVE_RENDER_BYTES = 32 * 28 * 2
 
-; Canonical C64 RGB approximations converted to SNES BGR555.
-; Cave 1 header: BG1=$08 orange, BG2=$0b dark gray, FG=$09 brown.
-C64_ORANGE_SN   = $1551
-C64_DARKGRAY_SN = $2529
-C64_BROWN_SN    = $00ea
-; Cave 2 header: BG1=$0a light red, BG2=$04 purple, FG=$09 brown.
-C64_LIGHTRED_SN = $39b8
-C64_PURPLE_SN   = $48f1
+; VIC-II PAL reference colors (Pepto palette) quantized to SNES BGR555.
+; $08 orange  #6F4F25 -> $114D
+; $09 brown   #433900 -> $00E8
+; $0A lt red  #9A6759 -> $2DB3
+; $0B dk gray #444444 -> $2108
+; $04 purple  #6F3D86 -> $40ED
+C64_ORANGE_SN   = $114d
+C64_BROWN_SN    = $00e8
+C64_LIGHTRED_SN = $2db3
+C64_DARKGRAY_SN = $2108
+C64_PURPLE_SN   = $40ed
 
 .segment "BSS"
 pad_result:        .res 1
@@ -93,14 +96,17 @@ snes_palette_cave: .res 1
     sta snes_palette_cave
 
     stz CGADD
-    ; Palette index 0: C64 background/border black.
+    ; VIC-II cave background D021 is black.
     stz CGDATA
     stz CGDATA
 
     lda game_current_cave
     cmp #2
     beq @cave2
+    cmp #3
+    beq @cave3
 
+    ; Cave 1 header: D022=$08, D023=$0b, Color RAM=$09.
     lda #<C64_ORANGE_SN
     ldx #>C64_ORANGE_SN
     jsr snes_write_color
@@ -113,11 +119,25 @@ snes_palette_cave: .res 1
     rts
 
 @cave2:
+    ; Cave 2 header: D022=$0a, D023=$04, Color RAM=$09.
     lda #<C64_LIGHTRED_SN
     ldx #>C64_LIGHTRED_SN
     jsr snes_write_color
     lda #<C64_PURPLE_SN
     ldx #>C64_PURPLE_SN
+    jsr snes_write_color
+    lda #<C64_BROWN_SN
+    ldx #>C64_BROWN_SN
+    jsr snes_write_color
+    rts
+
+@cave3:
+    ; Cave 3 header: D022=$09, D023=$08, Color RAM=$09.
+    lda #<C64_BROWN_SN
+    ldx #>C64_BROWN_SN
+    jsr snes_write_color
+    lda #<C64_ORANGE_SN
+    ldx #>C64_ORANGE_SN
     jsr snes_write_color
     lda #<C64_BROWN_SN
     ldx #>C64_BROWN_SN
@@ -278,7 +298,7 @@ snes_palette_cave: .res 1
 
 .proc platform_video_begin
     ; game_tick enters here in VBlank, so palette changes and VRAM DMA are
-    ; applied together without visible tearing when advancing to Cave 2.
+    ; applied together without visible tearing when advancing caves.
     jsr snes_load_cave_palette
     jsr snes_upload_cave
     rts
