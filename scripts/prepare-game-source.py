@@ -314,7 +314,7 @@ src = src.replace(
     1,
 )
 
-# Cave 2 uses 20 points per required diamond and 50 afterwards.
+# Per-cave diamond scoring from the original difficulty-0 headers.
 src = src.replace(
     ".import game_progress_init\n",
     ".import game_progress_init\n.import game_current_cave\n",
@@ -322,7 +322,11 @@ src = src.replace(
 )
 src = src.replace(
     "CAVE1_EXTRA_VALUE     = 15\n",
-    "CAVE1_EXTRA_VALUE     = 15\nCAVE2_DIAMOND_VALUE   = 20\nCAVE2_EXTRA_VALUE     = 50\n",
+    "CAVE1_EXTRA_VALUE     = 15\n"
+    "CAVE2_DIAMOND_VALUE   = 20\n"
+    "CAVE2_EXTRA_VALUE     = 50\n"
+    "CAVE3_DIAMOND_VALUE   = 15\n"
+    "CAVE3_EXTRA_VALUE     = 0\n",
     1,
 )
 old = """.proc game_collect_diamond
@@ -348,6 +352,8 @@ new = """.proc game_collect_diamond
     lda game_current_cave
     cmp #2
     beq @cave2
+    cmp #3
+    beq @cave3
 
     lda game_diamonds_got
     cmp game_diamonds_needed
@@ -366,6 +372,16 @@ new = """.proc game_collect_diamond
     bra @score
 @cave2_normal:
     lda #CAVE2_DIAMOND_VALUE
+    bra @score
+
+@cave3:
+    lda game_diamonds_got
+    cmp game_diamonds_needed
+    bcc @cave3_normal
+    lda #CAVE3_EXTRA_VALUE
+    bra @score
+@cave3_normal:
+    lda #CAVE3_DIAMOND_VALUE
 
 @score:
     jsr game_add_score
