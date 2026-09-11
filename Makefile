@@ -23,6 +23,9 @@ assets: check
 	$(PYTHON) scripts/convert-charset.py B1_GfxS.asm --source-format gfx --limit 128 \
 		--snes-out build/generated/snes/charset.inc \
 		--pce-out build/generated/pce/charset.inc
+	$(PYTHON) scripts/inject-benchmark-font.py \
+		build/generated/snes/charset.inc \
+		build/generated/pce/charset.inc
 	$(PYTHON) scripts/generate-cave1.py \
 		build/generated/common/cave1.inc \
 		build/generated/pce/cave1_bat.inc
@@ -88,7 +91,7 @@ run-both: all check-emulator
 	@nohup $(MEDNAFEN) build/snes/boulder-dash.sfc >/tmp/boulder-dash-snes-mednafen.log 2>&1 & \
 	 echo "SNES Mednafen PID: $$!"; \
 	 nohup $(MEDNAFEN) build/pce/boulder-dash.pce >/tmp/boulder-dash-pce-mednafen.log 2>&1 & \
-	 echo "PCE  Mednafen PID: $$!"; \
+	 echo "PCE Mednafen PID: $$!"; \
 	 echo "Logs: /tmp/boulder-dash-{snes,pce}-mednafen.log"
 
 clean:
