@@ -416,8 +416,9 @@ game_tile_char_map:
 .endproc
 
 .proc game_tick
-    jsr platform_wait_frame
-
+    ; Read the pad state left by the previous video frame first. This gives the
+    ; common core the visible-display period to update gameplay and rebuild a
+    ; dirty render buffer before waiting for the next VBlank upload window.
     lda game_pad_current
     sta game_pad_previous
 
@@ -432,9 +433,16 @@ game_tile_char_map:
     jsr game_handle_player
 
     lda game_video_dirty
-    beq @no_video_change
-
+    beq @render_ready
     jsr game_render_cave
+
+@render_ready:
+    ; Synchronize only after gameplay/render preparation. Platform video
+    ; uploads that follow can therefore run immediately inside VBlank.
+    jsr platform_wait_frame
+
+    lda game_video_dirty
+    beq @no_video_change
     jsr platform_video_begin
     jsr platform_video_end
     stz game_video_dirty
