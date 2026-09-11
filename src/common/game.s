@@ -7,6 +7,7 @@
 .export game_pad_current
 .export game_pad_previous
 .export game_pad_pressed
+.export game_video_dirty
 .export game_cave_state
 .export game_cave_render
 .export game_player_x
@@ -35,6 +36,7 @@ game_zp_dst2: .res 2
 game_pad_current:  .res 1
 game_pad_previous: .res 1
 game_pad_pressed:  .res 1
+game_video_dirty:  .res 1
 
 game_player_x: .res 1
 game_player_y: .res 1
@@ -316,6 +318,9 @@ game_tile_char_map:
     lda game_target_y
     sta game_player_y
     jsr game_update_view
+
+    lda #1
+    sta game_video_dirty
 @blocked:
     rts
 .endproc
@@ -385,6 +390,7 @@ game_tile_char_map:
     sta game_pad_current
     sta game_pad_previous
     sta game_pad_pressed
+    sta game_video_dirty
     sta game_view_x
     sta game_view_y
 
@@ -424,11 +430,16 @@ game_tile_char_map:
     sta game_pad_pressed
 
     jsr game_handle_player
-    jsr game_render_cave
 
+    lda game_video_dirty
+    beq @no_video_change
+
+    jsr game_render_cave
     jsr platform_video_begin
     jsr platform_video_end
+    stz game_video_dirty
 
+@no_video_change:
     ; Audio remains a required but deferred backend.
     jsr platform_audio_tick
     rts
