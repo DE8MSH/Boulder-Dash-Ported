@@ -130,8 +130,9 @@ cave4_box_x:
     rts
 .endproc
 
-; Uses cave_x/y/tile and may clobber X/Y.
+; Uses cave_x/y/tile. Preserve X because Cave 4 uses X as chamber index.
 .proc cave_set
+    phx
     lda #<game_cave_state
     sta cave_ptr
     lda #>game_cave_state
@@ -146,6 +147,7 @@ cave4_box_x:
     ldy cave_x
     lda cave_tile
     sta (cave_ptr),y
+    plx
     rts
 .endproc
 
