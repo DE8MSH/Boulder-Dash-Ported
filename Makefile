@@ -35,7 +35,9 @@ assets: check
 		build/generated/pce/intro-bank2.inc \
 		build/generated/pce/intro-bank3.inc \
 		build/generated/pce/intro-bank4.inc \
-		build/generated/pce/intro-bank5.inc
+		build/generated/pce/intro-bank5.inc \
+		build/generated/pce/intro-bank6.inc \
+		build/generated/pce/intro-bank7.inc
 
 build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-source.py scripts/fix-generated-branches.py | assets
 	$(PYTHON) scripts/prepare-game-source.py src/common/game.s build/generated/common/game-build.s
