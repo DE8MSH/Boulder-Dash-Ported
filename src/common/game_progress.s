@@ -24,6 +24,8 @@ CAVE1_EXIT_X      = $26
 CAVE1_EXIT_Y      = $12
 CAVE2_EXIT_X      = $12
 CAVE2_EXIT_Y      = $16
+CAVE3_EXIT_X      = $27
+CAVE3_EXIT_Y      = $14
 FRAMES_PER_SECOND = 60
 DEATH_WAIT_FRAMES = 60
 
@@ -95,6 +97,8 @@ game_cave_time:           .res 1
     lda game_current_cave
     cmp #2
     beq @check_cave2_exit
+    cmp #3
+    beq @check_cave3_exit
 
     lda game_player_x
     cmp #CAVE1_EXIT_X
@@ -106,7 +110,7 @@ game_cave_time:           .res 1
     beq :+
     jmp @count_time
 :
-    bra @cave_finished
+    jmp @cave_finished
 
 @check_cave2_exit:
     lda game_player_x
@@ -119,6 +123,19 @@ game_cave_time:           .res 1
     beq :+
     jmp @count_time
 :
+    jmp @cave_finished
+
+@check_cave3_exit:
+    lda game_player_x
+    cmp #CAVE3_EXIT_X
+    beq :+
+    jmp @count_time
+:
+    lda game_player_y
+    cmp #CAVE3_EXIT_Y
+    beq :+
+    jmp @count_time
+:
 
 @cave_finished:
     lda game_cave_time
@@ -126,11 +143,9 @@ game_cave_time:           .res 1
     stz game_cave_time
 
     lda game_current_cave
-    cmp #1
-    bne @final_hold
+    cmp #3
+    bcs @final_hold
 
-    ; Continue directly into Cave 2. Intermission/status presentation can be
-    ; layered on later without changing the underlying C64 cave progression.
     jsr game_flow_next_cave
     jsr game_progress_reset_attempt
     rts
