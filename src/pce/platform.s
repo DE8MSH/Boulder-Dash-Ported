@@ -3,24 +3,32 @@
 .include "../common/platform.inc"
 
 ; HuC6280 I/O mapping assumes the hardware page is mapped at $0000-$1fff.
-VDC_REG   = $0000
-VDC_DATA_L= $0002
-VDC_DATA_H= $0003
-VCE_CTRL  = $0400
-VCE_ADDR_L= $0402
-VCE_ADDR_H= $0403
-VCE_DATA_L= $0404
-VCE_DATA_H= $0405
-JOYPAD    = $1000
+VDC_REG    = $0000
+VDC_DATA_L = $0002
+VDC_DATA_H = $0003
+VCE_CTRL   = $0400
+VCE_ADDR_L = $0402
+VCE_ADDR_H = $0403
+VCE_DATA_L = $0404
+VCE_DATA_H = $0405
+JOYPAD     = $1000
 
 ; VDC register numbers.
-VDC_CR    = $05
-VDC_MWR   = $09
-VDC_HSR   = $0A
-VDC_HDR   = $0B
-VDC_VSR   = $0C
-VDC_VDR   = $0D
-VDC_VCR   = $0E
+VDC_MAWR = $00
+VDC_DATA = $02
+VDC_CR   = $05
+VDC_MWR  = $09
+VDC_HSR  = $0A
+VDC_HDR  = $0B
+VDC_VSR  = $0C
+VDC_VDR  = $0D
+VDC_VCR  = $0E
+
+; 32x32 BAT occupies VRAM words $0000-$03ff. Pattern data starts at $0400,
+; which corresponds to BAT character index $0040 because each 8x8 4bpp tile
+; consumes 16 VRAM words.
+PCE_PATTERN_WORD = $0400
+PCE_PATTERN_TILE = $0040
 
 .segment "BSS"
 pad_result:      .res 1
@@ -39,31 +47,31 @@ pce_raw_buttons: .res 1
 
 .proc platform_init
     sei
-    csh                 ; high-speed HuC6280 mode
+    csh
 
-    ; Standard 256-ish pixel timing bootstrap. Keep BG/sprites disabled for the
-    ; first visible test; palette entry 0 therefore becomes the backdrop.
-    stz VCE_CTRL        ; RGB mode, 5 MHz dot clock
+    ; RGB mode, 5 MHz dot clock.
+    stz VCE_CTRL
 
+    ; 256-ish pixel / 240-line bootstrap timing.
     lda #VDC_HSR
     ldx #$02
     ldy #$02
-    jsr vdc_write_xy    ; HSR = $0202
+    jsr vdc_write_xy
 
     lda #VDC_HDR
     ldx #$1f
     ldy #$04
-    jsr vdc_write_xy    ; HDR = $041f
+    jsr vdc_write_xy
 
     lda #VDC_VSR
     ldx #$02
     ldy #$0f
-    jsr vdc_write_xy    ; VSR = $0f02
+    jsr vdc_write_xy
 
     lda #VDC_VDR
     ldx #$ef
     ldy #$00
-    jsr vdc_write_xy    ; 240 visible lines
+    jsr vdc_write_xy
 
     lda #VDC_VCR
     ldx #$0c
@@ -71,35 +79,85 @@ pce_raw_buttons: .res 1
     jsr vdc_write_xy
 
     lda #VDC_MWR
-    ldx #$00            ; 32x32 BAT for the upcoming tile renderer
+    ldx #$00            ; 32x32 BAT
     ldy #$00
     jsr vdc_write_xy
 
-    ; Enable VBlank event generation, but leave BG and sprites off for now.
-    ; CPU IRQs remain masked; platform_wait_frame polls the VDC status flag.
-    lda #VDC_CR
-    ldx #$08
+    ; Clear the 32x32 BAT at VRAM word $0000.
+    lda #VDC_MAWR
+    ldx #$00
     ldy #$00
     jsr vdc_write_xy
+    lda #VDC_DATA
+    sta VDC_REG
+    ldy #$04            ; 4 * 256 words = 1024 BAT entries
+@clear_page:
+    ldx #$00
+@clear_word:
+    stz VDC_DATA_L
+    stz VDC_DATA_H
+    inx
+    bne @clear_word
+    dey
+    bne @clear_page
 
-    ; VCE palette entry 0 = dark blue (9-bit GRB: $0003).
+    ; Upload generated 4bpp tiles to VRAM word $0400. TIA increments the ROM
+    ; source and alternates destination writes between VDC_DATA_L/H, matching
+    ; the VDC's 16-bit write port exactly.
+    lda #VDC_MAWR
+    ldx #<PCE_PATTERN_WORD
+    ldy #>PCE_PATTERN_WORD
+    jsr vdc_write_xy
+    lda #VDC_DATA
+    sta VDC_REG
+    tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
+
+    ; First two BAT rows show converted Chr_00..Chr_3f.
+    lda #VDC_MAWR
+    ldx #$00
+    ldy #$00
+    jsr vdc_write_xy
+    lda #VDC_DATA
+    sta VDC_REG
+    ldx #$00
+@write_test_map:
+    txa
+    clc
+    adc #<PCE_PATTERN_TILE
+    sta VDC_DATA_L
+    lda #>PCE_PATTERN_TILE
+    adc #$00
+    sta VDC_DATA_H
+    inx
+    cpx #bd_charset_pce_count
+    bne @write_test_map
+
+    ; Palette 0: dark blue background, white foreground for C64 set pixels.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
-    lda #$03
+    lda #$03            ; color 0 = dark blue
     sta VCE_DATA_L
     stz VCE_DATA_H
+    lda #$ff            ; color 1 = white ($01ff)
+    sta VCE_DATA_L
+    lda #$01
+    sta VCE_DATA_H
+
+    ; Enable VBlank event and background display; sprites remain off.
+    lda #VDC_CR
+    ldx #$88            ; BG enable + VBlank event
+    ldy #$00
+    jsr vdc_write_xy
 
     ; Reset controller/multitap scan state, then leave SEL high.
-    lda #$03            ; CLR=1, SEL=1
+    lda #$03
     sta JOYPAD
-    lda #$01            ; CLR=0, SEL=1
+    lda #$01
     sta JOYPAD
     rts
 .endproc
 
 .proc platform_wait_frame
-    ; Reading VDC_REG returns/acknowledges status. Wait until the VBlank event
-    ; flag appears; this gives the common game loop one tick per video frame.
 @wait_vblank:
     lda VDC_REG
     and #$20
@@ -108,9 +166,6 @@ pce_raw_buttons: .res 1
 .endproc
 
 .proc platform_read_pad
-    ; Standard two-button PCE pad, active low:
-    ; SEL=1: d3..d0 = Left, Right, Down, Up
-    ; SEL=0: d3..d0 = Run, Select, II, I
     lda #$01
     sta JOYPAD
     nop
@@ -159,21 +214,21 @@ pce_raw_buttons: .res 1
     sta pad_result
 :
     lda pce_raw_buttons
-    and #%00000001      ; I = Boulder Dash fire/action
+    and #%00000001
     beq :+
     lda pad_result
     ora #PAD_FIRE
     sta pad_result
 :
     lda pce_raw_buttons
-    and #%00001000      ; Run
+    and #%00001000
     beq :+
     lda pad_result
     ora #PAD_START
     sta pad_result
 :
     lda pce_raw_buttons
-    and #%00000100      ; Select
+    and #%00000100
     beq :+
     lda pad_result
     ora #PAD_SELECT
@@ -184,7 +239,6 @@ pce_raw_buttons: .res 1
 .endproc
 
 .proc platform_video_begin
-    ; BAT/pattern updates arrive with the converted Boulder Dash characters.
     rts
 .endproc
 
@@ -194,6 +248,8 @@ pce_raw_buttons: .res 1
 
 .proc platform_audio_tick
     ; Deferred milestone: HuC6280 PSG music and SFX backend.
-    ; Keep the ABI entry point so audio cannot disappear from the plan.
     rts
 .endproc
+
+.segment "RODATA"
+.include "../../build/generated/pce/charset.inc"
