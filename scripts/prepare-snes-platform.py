@@ -26,9 +26,8 @@ src = src.replace(
 
 src = src.replace(
     "snes_palette_cave: .res 1\n",
-    "snes_palette_cave:    .res 1\n"
-    "snes_diamond_phase:   .res 1\n"
-    "snes_diamond_cadence: .res 1\n",
+    "snes_palette_cave:  .res 1\n"
+    "snes_diamond_phase: .res 1\n",
     1,
 )
 
@@ -77,15 +76,8 @@ animation_code = r'''
 .endproc
 
 .proc snes_tick_diamond_animation
-    ; Original PAL C64 updates on the 50 Hz video IRQ. The console loop is
-    ; roughly 60 Hz, so skip one update out of six to preserve that cadence.
-    inc snes_diamond_cadence
-    lda snes_diamond_cadence
-    cmp #$06
-    bne @advance
-    stz snes_diamond_cadence
-    rts
-@advance:
+    ; This ROM is PAL/Europe, so one video frame is already the original
+    ; C64 50 Hz animation cadence.
     inc snes_diamond_phase
     lda snes_diamond_phase
     and #$07
@@ -105,7 +97,6 @@ old = "    jsr snes_upload_game_tiles\n    jsr snes_upload_cave\n"
 new = (
     "    jsr snes_upload_game_tiles\n"
     "    stz snes_diamond_phase\n"
-    "    stz snes_diamond_cadence\n"
     "    jsr snes_upload_diamond_frame\n"
     "    jsr snes_upload_cave\n"
 )
