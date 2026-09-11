@@ -10,10 +10,13 @@
     clc
     xce
 
-    ; Enter a known native-mode state. X/Y must be 16-bit before loading
-    ; the 16-bit stack pointer value, otherwise ca65 treats #$1FFF as an
-    ; 8-bit immediate and correctly reports a range error.
+    ; Enter a known native-mode state. REP/SEP change the CPU flags at
+    ; runtime, while ca65 also needs explicit register-width directives so it
+    ; can encode immediate operands correctly.
     rep #$30
+    .a16
+    .i16
+
     lda #$0000
     tcd
     ldx #$1FFF
@@ -21,6 +24,8 @@
 
     ; Keep the shared game core deliberately 6502-like after startup.
     sep #$30
+    .a8
+    .i8
 
     jsr game_init
 
