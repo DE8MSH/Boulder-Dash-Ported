@@ -3,20 +3,93 @@
 .include "../common/platform.inc"
 
 ; HuC6280 I/O mapping assumes the hardware page is mapped at $0000-$1fff.
-JOYPAD = $1000
+VDC_REG   = $0000
+VDC_DATA_L= $0002
+VDC_DATA_H= $0003
+VCE_CTRL  = $0400
+VCE_ADDR_L= $0402
+VCE_ADDR_H= $0403
+VCE_DATA_L= $0404
+VCE_DATA_H= $0405
+JOYPAD    = $1000
+
+; VDC register numbers.
+VDC_CR    = $05
+VDC_MWR   = $09
+VDC_HSR   = $0A
+VDC_HDR   = $0B
+VDC_VSR   = $0C
+VDC_VDR   = $0D
+VDC_VCR   = $0E
 
 .segment "BSS"
-pad_result: .res 1
-pce_raw_dpad: .res 1
+pad_result:      .res 1
+pce_raw_dpad:    .res 1
 pce_raw_buttons: .res 1
 
 .segment "CODE"
+
+; Write A=register number, X=low byte, Y=high byte to the VDC.
+.proc vdc_write_xy
+    sta VDC_REG
+    stx VDC_DATA_L
+    sty VDC_DATA_H
+    rts
+.endproc
 
 .proc platform_init
     sei
     csh                 ; high-speed HuC6280 mode
 
-    ; Reset the controller/multitap scan state, then leave SEL high.
+    ; Standard 256-ish pixel timing bootstrap. Keep BG/sprites disabled for the
+    ; first visible test; palette entry 0 therefore becomes the backdrop.
+    stz VCE_CTRL        ; RGB mode, 5 MHz dot clock
+
+    lda #VDC_HSR
+    ldx #$02
+    ldy #$02
+    jsr vdc_write_xy    ; HSR = $0202
+
+    lda #VDC_HDR
+    ldx #$1f
+    ldy #$04
+    jsr vdc_write_xy    ; HDR = $041f
+
+    lda #VDC_VSR
+    ldx #$02
+    ldy #$0f
+    jsr vdc_write_xy    ; VSR = $0f02
+
+    lda #VDC_VDR
+    ldx #$ef
+    ldy #$00
+    jsr vdc_write_xy    ; 240 visible lines
+
+    lda #VDC_VCR
+    ldx #$0c
+    ldy #$00
+    jsr vdc_write_xy
+
+    lda #VDC_MWR
+    ldx #$00            ; 32x32 BAT for the upcoming tile renderer
+    ldy #$00
+    jsr vdc_write_xy
+
+    ; Enable VBlank event generation, but leave BG and sprites off for now.
+    ; CPU IRQs remain masked; platform_wait_frame polls the VDC status flag.
+    lda #VDC_CR
+    ldx #$08
+    ldy #$00
+    jsr vdc_write_xy
+
+    ; VCE palette entry 0 = dark blue (9-bit GRB: $0003).
+    stz VCE_ADDR_L
+    stz VCE_ADDR_H
+    lda #$03
+    sta VCE_DATA_L
+    stz VCE_DATA_H
+
+    ; Reset controller/multitap scan state, then leave SEL high.
     lda #$03            ; CLR=1, SEL=1
     sta JOYPAD
     lda #$01            ; CLR=0, SEL=1
@@ -25,8 +98,12 @@ pce_raw_buttons: .res 1
 .endproc
 
 .proc platform_wait_frame
-    ; VDC VBlank synchronization is the next hardware step. Until the VDC
-    ; init/vector code is linked into a real ROM, do not fake a timing source.
+    ; Reading VDC_REG returns/acknowledges status. Wait until the VBlank event
+    ; flag appears; this gives the common game loop one tick per video frame.
+@wait_vblank:
+    lda VDC_REG
+    and #$20
+    beq @wait_vblank
     rts
 .endproc
 
@@ -107,7 +184,7 @@ pce_raw_buttons: .res 1
 .endproc
 
 .proc platform_video_begin
-    ; BAT/pattern/palette update queue comes after VDC initialization.
+    ; BAT/pattern updates arrive with the converted Boulder Dash characters.
     rts
 .endproc
 
