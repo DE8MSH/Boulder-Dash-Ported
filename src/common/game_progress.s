@@ -4,6 +4,10 @@
 .import game_player_x
 .import game_player_y
 .import game_player_alive
+.import game_flow_init
+.import game_flow_lose_life
+.import game_flow_add_time_bonus
+.import game_game_over
 
 .export game_progress_tick
 .export game_cave_complete
@@ -14,28 +18,56 @@ CAVE1_TIME_SECONDS = 150
 CAVE1_EXIT_X       = $26
 CAVE1_EXIT_Y       = $12
 FRAMES_PER_SECOND  = 60
+DEATH_WAIT_FRAMES  = 60
 
 .segment "BSS"
 game_progress_initialized: .res 1
 game_progress_frame:       .res 1
+game_progress_death_wait:  .res 1
 game_cave_complete:        .res 1
 game_cave_time:            .res 1
 
 .segment "CODE"
+
+.proc game_progress_reset_attempt
+    stz game_progress_frame
+    stz game_progress_death_wait
+    stz game_cave_complete
+    lda #CAVE1_TIME_SECONDS
+    sta game_cave_time
+    rts
+.endproc
 
 .proc game_progress_tick
     lda game_progress_initialized
     bne @initialized
     lda #1
     sta game_progress_initialized
-    stz game_progress_frame
-    stz game_cave_complete
-    lda #CAVE1_TIME_SECONDS
-    sta game_cave_time
+    jsr game_flow_init
+    jsr game_progress_reset_attempt
 
 @initialized:
+    lda game_game_over
+    bne @done
+
     lda game_cave_complete
     bne @done
+
+    ; Keep the explosion visible before consuming a life and rebuilding Cave 1.
+    lda game_player_alive
+    bne @check_exit
+    inc game_progress_death_wait
+    lda game_progress_death_wait
+    cmp #DEATH_WAIT_FRAMES
+    bcc @done
+    jsr game_flow_lose_life
+    lda game_game_over
+    bne @done
+    jsr game_progress_reset_attempt
+    rts
+
+@check_exit:
+    stz game_progress_death_wait
 
     ; The original open exit completes the cave when Rockford enters it.
     lda game_exit_open
@@ -46,15 +78,19 @@ game_cave_time:            .res 1
     lda game_player_y
     cmp #CAVE1_EXIT_Y
     bne @count_time
+
     lda #1
     sta game_cave_complete
     stz game_player_alive
+
+    lda game_cave_time
+    jsr game_flow_add_time_bonus
+    stz game_cave_time
     rts
 
 @count_time:
-    ; Cave 1 starts at $96 = 150 seconds. This is deliberately kept separate
-    ; from the movement cadence so later timing calibration does not alter the
-    ; cave clock.
+    ; Cave 1 starts at $96 = 150 seconds. Keep the cave clock independent of
+    ; movement timing so later SNES/PCE pacing calibration cannot change it.
     inc game_progress_frame
     lda game_progress_frame
     cmp #FRAMES_PER_SECOND
@@ -67,8 +103,10 @@ game_cave_time:            .res 1
     bne @done
 
 @time_out:
-    ; Match the C64 game-state transition: zero time ends the current attempt.
+    ; Zero time is handled like any other failed attempt: the death delay is
+    ; entered, one life is consumed, then Cave 1 is rebuilt if lives remain.
     stz game_player_alive
+    stz game_progress_death_wait
 
 @done:
     rts
