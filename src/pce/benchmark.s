@@ -8,9 +8,9 @@ VDC_DATA_L = $0002
 VDC_MAWR   = $00
 VDC_DATA   = $02
 
-FONT_TILE_BASE = $b0
-FONT_M_TILE    = $ba
-FONT_S_TILE    = $bb
+FONT_TILE_BASE = $70
+FONT_M_TILE    = $7a
+FONT_S_TILE    = $7b
 OVERLAY_BAT    = 25
 
 .segment "BSS"
@@ -33,8 +33,7 @@ bench_overlay: .res 14
 .proc platform_benchmark_tick
     ; Current HuC6280 timer pacing is about 18.31 ms per host tick.
     ; Keep the fractional .31 ms in binary, then add either 18 or 19 ms to
-    ; a packed-BCD millisecond counter. This is much smaller than incrementing
-    ; five separate decimal digits and keeps the 8 KiB HuCard image intact.
+    ; a packed-BCD millisecond counter.
     clc
     lda bench_frac
     adc #79
