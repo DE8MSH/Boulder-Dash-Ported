@@ -313,17 +313,13 @@ pce_dirty_buf:     .res 4
 .endproc
 
 .proc platform_wait_frame
-    ; VDC status bit 5 is an event flag. First consume/leave any current
-    ; VBlank indication, then wait for the next VBlank event. This prevents
-    ; several game ticks from running inside one VBlank interval.
-@leave_vblank:
+    ; Bit 5 is a latched VBlank event flag and is cleared by reading status.
+    ; Poll until a new VBlank event arrives; do not try to treat it as a
+    ; continuous in-VBlank level.
+@wait_vblank:
     lda VDC_STATUS
     and #$20
-    bne @leave_vblank
-@enter_vblank:
-    lda VDC_STATUS
-    and #$20
-    beq @enter_vblank
+    beq @wait_vblank
     rts
 .endproc
 
