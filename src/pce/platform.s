@@ -17,6 +17,8 @@ JOYPAD     = $1000
 VDC_MAWR = $00
 VDC_DATA = $02
 VDC_CR   = $05
+VDC_BXR  = $07
+VDC_BYR  = $08
 VDC_MWR  = $09
 VDC_HSR  = $0A
 VDC_HDR  = $0B
@@ -29,6 +31,8 @@ VDC_VCR  = $0E
 ; consumes 16 VRAM words.
 PCE_PATTERN_WORD = $0400
 PCE_PATTERN_TILE = $0040
+PCE_DIAG_WORD    = $0410
+PCE_DIAG_TILE    = $0041
 
 .segment "BSS"
 pad_result:      .res 1
@@ -83,6 +87,17 @@ pce_raw_buttons: .res 1
     ldy #$00
     jsr vdc_write_xy
 
+    ; Power-on scroll values are not part of the game contract. Explicitly
+    ; start at BAT origin so the first generated rows are guaranteed visible.
+    lda #VDC_BXR
+    ldx #$00
+    ldy #$00
+    jsr vdc_write_xy
+    lda #VDC_BYR
+    ldx #$00
+    ldy #$00
+    jsr vdc_write_xy
+
     ; Upload generated 4bpp tiles to VRAM word $0400 first. Chr_00 is a
     ; guaranteed blank character and becomes tile $40.
     lda #VDC_MAWR
@@ -93,9 +108,29 @@ pce_raw_buttons: .res 1
     sta VDC_REG
     tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
 
+    ; Also write one known solid diagnostic tile directly through the VDC port
+    ; at tile $41. This bypasses TIA/asset conversion for a visible reference.
+    lda #VDC_MAWR
+    ldx #<PCE_DIAG_WORD
+    ldy #>PCE_DIAG_WORD
+    jsr vdc_write_xy
+    lda #VDC_DATA
+    sta VDC_REG
+    ldx #$08
+@diag_plane01:
+    lda #$ff            ; plane 0 = 1 for all pixels => palette color 1
+    sta VDC_DATA_L
+    stz VDC_DATA_H      ; plane 1 = 0
+    dex
+    bne @diag_plane01
+    ldx #$08
+@diag_plane23:
+    stz VDC_DATA_L
+    stz VDC_DATA_H
+    dex
+    bne @diag_plane23
+
     ; Fill the complete 32x32 BAT with tile $40 (Chr_00), not tile 0.
-    ; Tile 0 would point back into the BAT itself because the BAT occupies
-    ; VRAM $0000-$03ff; using the dedicated blank tile avoids self-reference.
     lda #VDC_MAWR
     ldx #$00
     ldy #$00
@@ -135,6 +170,19 @@ pce_raw_buttons: .res 1
     cpx #bd_charset_pce_count
     bne @write_test_map
 
+    ; Put the known solid tile at BAT row 10, column 10 (word $014a).
+    ; It should appear as one white 8x8 square even if the charset upload is bad.
+    lda #VDC_MAWR
+    ldx #$4a
+    ldy #$01
+    jsr vdc_write_xy
+    lda #VDC_DATA
+    sta VDC_REG
+    lda #<PCE_DIAG_TILE
+    sta VDC_DATA_L
+    lda #>PCE_DIAG_TILE
+    sta VDC_DATA_H
+
     ; BG palette 0: dark blue background, white foreground for C64 set pixels.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
@@ -146,9 +194,7 @@ pce_raw_buttons: .res 1
     lda #$01
     sta VCE_DATA_H
 
-    ; The PCE's backdrop when no opaque BG pixel is present comes from color 0
-    ; of the first sprite palette (VCE entry $100). Initialize that too so an
-    ; empty/transparent area is deterministic rather than power-on white.
+    ; Backdrop color comes from color 0 of the first sprite palette ($100).
     stz VCE_ADDR_L
     lda #$01
     sta VCE_ADDR_H
