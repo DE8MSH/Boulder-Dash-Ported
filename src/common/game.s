@@ -60,6 +60,7 @@ T_XPL_EMPTY2     = $1d
 T_XPL_EMPTY3     = $1e
 T_XPL_EMPTY4     = $1f
 T_ROCKFORD       = $38
+T_ROCKFORD_      = $39
 
 .segment "ZEROPAGE"
 game_zp_src:  .res 2
@@ -341,8 +342,6 @@ game_tile_char_map:
     rts
 .endproc
 
-; Small deterministic replacement for the C64 CIA timer entropy used by
-; GetValRND. The original push rule only depends on the low two bits.
 .proc game_next_random
     lda game_random
     asl a
@@ -457,6 +456,11 @@ game_tile_char_map:
     lda #T_DIAMOND_FALL
     bra @store
 :
+    cmp #T_ROCKFORD_
+    bne :+
+    lda #T_ROCKFORD
+    bra @store
+:
     cmp #T_XPL_EMPTY0
     bne :+
     lda #T_XPL_EMPTY1
@@ -512,6 +516,11 @@ game_tile_char_map:
     cmp #T_DIAMOND_FALL_
     bne :+
     lda #T_DIAMOND_FALL
+    bra @tail_store
+:
+    cmp #T_ROCKFORD_
+    bne :+
+    lda #T_ROCKFORD
     bra @tail_store
 :
     cmp #T_XPL_EMPTY0
@@ -788,77 +797,6 @@ game_tile_char_map:
     rts
 .endproc
 
-.proc game_physics_step
-    inc game_phys_counter
-    lda game_phys_counter
-    cmp #PHYSICS_DIV
-    bcc @done
-    stz game_phys_counter
-    jsr game_physics_normalize
-
-    lda #1
-    sta game_phys_y
-@row:
-    lda #1
-    sta game_phys_x
-@col:
-    lda game_phys_x
-    sta game_point_x
-    lda game_phys_y
-    sta game_point_y
-    jsr game_get_point
-
-    cmp #T_BOULDER_FIXED
-    bne @bfall
-    lda #T_BOULDER_FIXED
-    sta game_phys_fix_tile
-    lda #T_BOULDER_FALL_
-    sta game_phys_fall_tile
-    jsr game_physics_fixed
-    bra @next
-
-@bfall:
-    cmp #T_BOULDER_FALL
-    bne @dfix
-    lda #T_BOULDER_FIXED_
-    sta game_phys_fix_tile
-    lda #T_BOULDER_FALL_
-    sta game_phys_fall_tile
-    jsr game_physics_falling
-    bra @next
-
-@dfix:
-    cmp #T_DIAMOND_FIXED
-    bne @dfall
-    lda #T_DIAMOND_FIXED
-    sta game_phys_fix_tile
-    lda #T_DIAMOND_FALL_
-    sta game_phys_fall_tile
-    jsr game_physics_fixed
-    bra @next
-
-@dfall:
-    cmp #T_DIAMOND_FALL
-    bne @next
-    lda #T_DIAMOND_FIXED_
-    sta game_phys_fix_tile
-    lda #T_DIAMOND_FALL_
-    sta game_phys_fall_tile
-    jsr game_physics_falling
-
-@next:
-    inc game_phys_x
-    lda game_phys_x
-    cmp #39
-    bne @col
-    inc game_phys_y
-    lda game_phys_y
-    cmp #21
-    bne @row
-@done:
-    rts
-.endproc
-
 .proc game_try_push_boulder
     lda game_target_x
     cmp game_player_x
@@ -919,7 +857,7 @@ game_tile_char_map:
     sta game_point_x
     lda game_target_y
     sta game_point_y
-    lda #T_ROCKFORD
+    lda #T_ROCKFORD_
     jsr game_set_point
     lda game_target_x
     sta game_player_x
@@ -965,7 +903,7 @@ game_tile_char_map:
     sta game_point_x
     lda game_target_y
     sta game_point_y
-    lda #T_ROCKFORD
+    lda #T_ROCKFORD_
     jsr game_set_point
     lda game_target_x
     sta game_player_x
@@ -983,7 +921,9 @@ game_tile_char_map:
     bne :+
     rts
 :
-    lda game_pad_pressed
+    ; The original reads the current joystick level when Rockford's cave cell
+    ; is processed. Held directions therefore repeat once per cave scan.
+    lda game_pad_current
     and #PAD_LEFT
     beq @right
     lda game_player_x
@@ -996,7 +936,7 @@ game_tile_char_map:
     sta game_target_y
     jmp game_try_move
 @right:
-    lda game_pad_pressed
+    lda game_pad_current
     and #PAD_RIGHT
     beq @up
     lda game_player_x
@@ -1009,7 +949,7 @@ game_tile_char_map:
     sta game_target_y
     jmp game_try_move
 @up:
-    lda game_pad_pressed
+    lda game_pad_current
     and #PAD_UP
     beq @down
     lda game_player_y
@@ -1022,7 +962,7 @@ game_tile_char_map:
     sta game_target_x
     jmp game_try_move
 @down:
-    lda game_pad_pressed
+    lda game_pad_current
     and #PAD_DOWN
     beq @done
     lda game_player_y
@@ -1035,6 +975,79 @@ game_tile_char_map:
     sta game_target_x
     jmp game_try_move
 @done:
+    rts
+.endproc
+
+; One complete C64-style cave pass. Rockford is dispatched from his actual
+; tile in the same top-to-bottom order as the other dynamic cave objects.
+.proc game_physics_step
+    jsr game_physics_normalize
+
+    lda #1
+    sta game_phys_y
+@row:
+    lda #1
+    sta game_phys_x
+@col:
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    jsr game_get_point
+
+    cmp #T_BOULDER_FIXED
+    bne @bfall
+    lda #T_BOULDER_FIXED
+    sta game_phys_fix_tile
+    lda #T_BOULDER_FALL_
+    sta game_phys_fall_tile
+    jsr game_physics_fixed
+    bra @next
+
+@bfall:
+    cmp #T_BOULDER_FALL
+    bne @dfix
+    lda #T_BOULDER_FIXED_
+    sta game_phys_fix_tile
+    lda #T_BOULDER_FALL_
+    sta game_phys_fall_tile
+    jsr game_physics_falling
+    bra @next
+
+@dfix:
+    cmp #T_DIAMOND_FIXED
+    bne @dfall
+    lda #T_DIAMOND_FIXED
+    sta game_phys_fix_tile
+    lda #T_DIAMOND_FALL_
+    sta game_phys_fall_tile
+    jsr game_physics_fixed
+    bra @next
+
+@dfall:
+    cmp #T_DIAMOND_FALL
+    bne @rockford
+    lda #T_DIAMOND_FIXED_
+    sta game_phys_fix_tile
+    lda #T_DIAMOND_FALL_
+    sta game_phys_fall_tile
+    jsr game_physics_falling
+    bra @next
+
+@rockford:
+    cmp #T_ROCKFORD
+    bne @next
+    jsr game_handle_player
+
+@next:
+    inc game_phys_x
+    lda game_phys_x
+    cmp #39
+    bne @col
+    inc game_phys_y
+    lda game_phys_y
+    cmp #21
+    bne @row
     rts
 .endproc
 
@@ -1079,22 +1092,14 @@ game_tile_char_map:
 .proc game_tick
     stz game_video_full_dirty
 
-    ; First sample handles input that was already present at the start of the
-    ; frame. Edge detection still guarantees one logical move per press.
-    lda game_pad_current
-    sta game_pad_previous
-    jsr platform_read_pad
-    sta game_pad_current
-    lda game_pad_previous
-    eor #$ff
-    and game_pad_current
-    sta game_pad_pressed
-    jsr game_handle_player
+    ; Rendering remains frame-paced, but game logic now advances only as one
+    ; complete cave pass. Input is sampled exactly once for that pass.
+    inc game_phys_counter
+    lda game_phys_counter
+    cmp #PHYSICS_DIV
+    bcc @render_ready
+    stz game_phys_counter
 
-    ; Physics is the longest CPU section. A quick press can happen while the
-    ; cave scan is running, so sample once more immediately afterwards instead
-    ; of waiting until the next complete frame.
-    jsr game_physics_step
     lda game_pad_current
     sta game_pad_previous
     jsr platform_read_pad
@@ -1103,7 +1108,8 @@ game_tile_char_map:
     eor #$ff
     and game_pad_current
     sta game_pad_pressed
-    jsr game_handle_player
+
+    jsr game_physics_step
 
     lda game_video_dirty
     beq @render_ready
