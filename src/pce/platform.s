@@ -9,6 +9,7 @@
 .import game_view_y
 .import game_video_full_dirty
 .import game_progress_tick
+.import game_current_cave
 
 VDC_STATUS  = $0000
 VDC_DATA_L  = $0002
@@ -39,6 +40,15 @@ PCE_PATTERN_WORD = $0400
 PCE_PATTERN_TILE = $0040
 CAVE_RENDER_BYTES = 32 * 28 * 2
 
+; Canonical C64 RGB approximations converted to HuC6260 9-bit GRB.
+; Cave 1: $08 orange, $0b dark gray, $09 brown.
+C64_ORANGE_PCE   = $a1
+C64_DARKGRAY_PCE = $92
+C64_BROWN_PCE    = $90
+; Cave 2: $0a light red, $04 purple, $09 brown.
+C64_LIGHTRED_PCE = $eb
+C64_PURPLE_PCE   = $a4
+
 ; HuC6280 timer runs at ~6.99 kHz. Reload $74 gives 117 ticks,
 ; approximately 59.75 Hz, close to the PCE display rate.
 PCE_TIMER_RELOAD = $74
@@ -51,6 +61,7 @@ pce_zp_src: .res 2
 pad_result:      .res 1
 pce_raw_dpad:    .res 1
 pce_raw_buttons: .res 1
+pce_palette_cave:.res 1
 
 pce_last_player_x: .res 1
 pce_last_player_y: .res 1
@@ -78,6 +89,44 @@ pce_last_vdc_status:     .res 1
     st2 #$00
     st0 #VDC_DATA
     tia game_cave_render, VDC_DATA_L, CAVE_RENDER_BYTES
+    rts
+.endproc
+
+.proc pce_load_cave_palette
+    lda game_current_cave
+    cmp pce_palette_cave
+    beq @done
+    sta pce_palette_cave
+
+    stz VCE_ADDR_L
+    stz VCE_ADDR_H
+    stz VCE_DATA_L             ; C64 background black
+    stz VCE_DATA_H
+
+    lda game_current_cave
+    cmp #2
+    beq @cave2
+    lda #C64_ORANGE_PCE
+    sta VCE_DATA_L
+    stz VCE_DATA_H
+    lda #C64_DARKGRAY_PCE
+    sta VCE_DATA_L
+    stz VCE_DATA_H
+    lda #C64_BROWN_PCE
+    sta VCE_DATA_L
+    stz VCE_DATA_H
+    rts
+@cave2:
+    lda #C64_LIGHTRED_PCE
+    sta VCE_DATA_L
+    stz VCE_DATA_H
+    lda #C64_PURPLE_PCE
+    sta VCE_DATA_L
+    stz VCE_DATA_H
+    lda #C64_BROWN_PCE
+    sta VCE_DATA_L
+    stz VCE_DATA_H
+@done:
     rts
 .endproc
 
@@ -277,22 +326,11 @@ pce_last_vdc_status:     .res 1
 
     jsr pce_upload_cave
 
-    ; Cave 1 C64 multicolor palette from the original cave header:
-    ; $08 orange, $0b dark gray, $09 brown. PCE VCE entries are 9-bit GRB.
-    stz VCE_ADDR_L
-    stz VCE_ADDR_H
-    stz VCE_DATA_L
-    stz VCE_DATA_H
-    lda #$f1                    ; C64 orange
-    sta VCE_DATA_L
-    stz VCE_DATA_H
-    lda #$db                    ; C64 dark gray
-    sta VCE_DATA_L
-    stz VCE_DATA_H
-    lda #$98                    ; C64 brown
-    sta VCE_DATA_L
-    stz VCE_DATA_H
+    lda #$ff
+    sta pce_palette_cave
+    jsr pce_load_cave_palette
 
+    ; Clear the first entry of sprite palette 0 as before.
     stz VCE_ADDR_L
     lda #$01
     sta VCE_ADDR_H
@@ -410,6 +448,9 @@ pce_last_vdc_status:     .res 1
 .endproc
 
 .proc platform_video_begin
+    ; Apply the C64 cave palette when advancing caves, then update the BAT.
+    jsr pce_load_cave_palette
+
     ; Physics may change many cave cells in one scan. Use a full BAT refresh for
     ; those frames; keep the small two-object path for player-only movement.
     lda game_video_full_dirty
