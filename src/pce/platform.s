@@ -7,12 +7,9 @@
 .import game_player_y
 .import game_view_x
 .import game_view_y
-.import game_pad_current
-.import game_video_dirty
 
 VDC_STATUS  = $0000
 VDC_DATA_L  = $0002
-VDC_DATA_H  = $0003
 VCE_CTRL    = $0400
 VCE_ADDR_L  = $0402
 VCE_ADDR_H  = $0403
@@ -36,24 +33,8 @@ PCE_PATTERN_WORD = $0400
 PCE_PATTERN_TILE = $0040
 CAVE_RENDER_BYTES = 32 * 28 * 2
 
-DEBUG_FONT_WORD  = $0C00
-DEBUG_BLANK      = $C0
-DEBUG_0          = $C1
-DEBUG_A          = $CB
-DEBUG_B          = $CC
-DEBUG_C          = $CD
-DEBUG_D          = $CE
-DEBUG_E          = $CF
-DEBUG_F          = $D0
-DEBUG_S          = $D1
-DEBUG_P          = $D2
-DEBUG_V          = $D3
-DEBUG_COMMA      = $D4
-DEBUG_GLYPHS     = 21
-
 .segment "ZEROPAGE"
-pce_zp_src:   .res 2
-pce_font_ptr: .res 2
+pce_zp_src: .res 2
 
 .segment "BSS"
 pad_result:      .res 1
@@ -73,217 +54,14 @@ pce_addr_hi:       .res 1
 pce_addr_buf:      .res 2
 pce_dirty_buf:     .res 4
 
-; Freeze diagnostic state shown in the top two BAT rows.
-pce_debug_stage:         .res 1
-pce_debug_frame_lo:      .res 1
-pce_debug_frame_hi:      .res 1
-pce_debug_status:        .res 1
-pce_debug_timeout_count: .res 1
+; VBlank timeout diagnostics kept internally so a missed event can never
+; hard-lock the game loop again.
 pce_wait_lo:             .res 1
 pce_wait_hi:             .res 1
-pce_debug_line:          .res 128
-pce_debug_tile_buf:      .res 32
-
-.segment "RODATA"
-; Compact 8x8 1bpp diagnostic font. Order:
-; blank, 0..9, A..F, S, P, V, comma.
-pce_debug_font_rows:
-    .byte $00,$00,$00,$00,$00,$00,$00,$00
-    .byte $3C,$66,$6E,$76,$66,$66,$3C,$00
-    .byte $18,$38,$18,$18,$18,$18,$3C,$00
-    .byte $3C,$66,$06,$0C,$30,$60,$7E,$00
-    .byte $3C,$66,$06,$1C,$06,$66,$3C,$00
-    .byte $0C,$1C,$2C,$4C,$7E,$0C,$1E,$00
-    .byte $7E,$60,$7C,$06,$06,$66,$3C,$00
-    .byte $1C,$30,$60,$7C,$66,$66,$3C,$00
-    .byte $7E,$66,$06,$0C,$18,$18,$18,$00
-    .byte $3C,$66,$66,$3C,$66,$66,$3C,$00
-    .byte $3C,$66,$66,$3E,$06,$0C,$38,$00
-    .byte $18,$3C,$66,$66,$7E,$66,$66,$00
-    .byte $7C,$66,$66,$7C,$66,$66,$7C,$00
-    .byte $3C,$66,$60,$60,$60,$66,$3C,$00
-    .byte $78,$6C,$66,$66,$66,$6C,$78,$00
-    .byte $7E,$60,$60,$7C,$60,$60,$7E,$00
-    .byte $7E,$60,$60,$7C,$60,$60,$60,$00
-    .byte $3C,$66,$60,$3C,$06,$66,$3C,$00
-    .byte $7C,$66,$66,$7C,$60,$60,$60,$00
-    .byte $66,$66,$66,$66,$66,$3C,$18,$00
-    .byte $00,$00,$00,$00,$00,$18,$18,$30
+pce_vblank_timeout_count:.res 1
+pce_last_vdc_status:     .res 1
 
 .segment "CODE"
-
-.proc pce_upload_debug_font
-    lda #<pce_debug_font_rows
-    sta pce_font_ptr
-    lda #>pce_debug_font_rows
-    sta pce_font_ptr+1
-
-    st0 #VDC_MAWR
-    st1 #<DEBUG_FONT_WORD
-    st2 #>DEBUG_FONT_WORD
-    st0 #VDC_DATA
-
-    lda #DEBUG_GLYPHS
-    sta pce_addr_lo
-@glyph:
-    ldy #$00
-    ldx #$00
-@row:
-    lda (pce_font_ptr),y
-    sta pce_debug_tile_buf,x
-    inx
-    stz pce_debug_tile_buf,x
-    inx
-    iny
-    cpy #$08
-    bne @row
-
-    lda #$00
-@clear_hi:
-    sta pce_debug_tile_buf,x
-    inx
-    cpx #$20
-    bne @clear_hi
-
-    tia pce_debug_tile_buf, VDC_DATA_L, 32
-
-    clc
-    lda pce_font_ptr
-    adc #$08
-    sta pce_font_ptr
-    lda pce_font_ptr+1
-    adc #$00
-    sta pce_font_ptr+1
-
-    dec pce_addr_lo
-    bne @glyph
-    rts
-.endproc
-
-; A=value, X=byte offset in pce_debug_line.
-.proc pce_debug_hex2
-    sta pce_addr_hi
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    clc
-    adc #DEBUG_0
-    sta pce_debug_line,x
-    inx
-    stz pce_debug_line,x
-    inx
-
-    lda pce_addr_hi
-    and #$0f
-    clc
-    adc #DEBUG_0
-    sta pce_debug_line,x
-    inx
-    stz pce_debug_line,x
-    inx
-    rts
-.endproc
-
-.proc pce_debug_init_line
-    ldx #$00
-@row0:
-    lda #DEBUG_BLANK
-    sta pce_debug_line,x
-    inx
-    stz pce_debug_line,x
-    inx
-    cpx #$40
-    bne @row0
-
-    ldx #$00
-@row1:
-    lda #DEBUG_BLANK
-    sta pce_debug_line+$40,x
-    inx
-    stz pce_debug_line+$40,x
-    inx
-    cpx #$40
-    bne @row1
-
-    ; Row 0: Fhhhh Shh Dhh Bhh Phh,hh Vhh,hh
-    lda #DEBUG_F
-    sta pce_debug_line+0
-    lda #DEBUG_S
-    sta pce_debug_line+12
-    lda #DEBUG_D
-    sta pce_debug_line+20
-    lda #DEBUG_B
-    sta pce_debug_line+28
-    lda #DEBUG_P
-    sta pce_debug_line+36
-    lda #DEBUG_COMMA
-    sta pce_debug_line+42
-    lda #DEBUG_V
-    sta pce_debug_line+50
-    lda #DEBUG_COMMA
-    sta pce_debug_line+56
-
-    ; Row 1: Ahh Ehh Chh. C is VBlank wait timeout count.
-    lda #DEBUG_A
-    sta pce_debug_line+$40+0
-    lda #DEBUG_E
-    sta pce_debug_line+$40+8
-    lda #DEBUG_C
-    sta pce_debug_line+$40+16
-    rts
-.endproc
-
-.proc pce_debug_draw
-    ldx #$02
-    lda pce_debug_frame_hi
-    jsr pce_debug_hex2
-    lda pce_debug_frame_lo
-    jsr pce_debug_hex2
-
-    ldx #$0e
-    lda pce_debug_stage
-    jsr pce_debug_hex2
-
-    ldx #$16
-    lda pce_raw_dpad
-    jsr pce_debug_hex2
-
-    ldx #$1e
-    lda pce_raw_buttons
-    jsr pce_debug_hex2
-
-    ldx #$26
-    lda game_player_x
-    jsr pce_debug_hex2
-    ldx #$2c
-    lda game_player_y
-    jsr pce_debug_hex2
-
-    ldx #$34
-    lda game_view_x
-    jsr pce_debug_hex2
-    ldx #$3a
-    lda game_view_y
-    jsr pce_debug_hex2
-
-    ldx #($40 + 2)
-    lda game_pad_current
-    jsr pce_debug_hex2
-    ldx #($40 + 10)
-    lda pce_debug_status
-    jsr pce_debug_hex2
-    ldx #($40 + 18)
-    lda pce_debug_timeout_count
-    jsr pce_debug_hex2
-
-    st0 #VDC_MAWR
-    st1 #$00
-    st2 #$00
-    st0 #VDC_DATA
-    tia pce_debug_line, VDC_DATA_L, 128
-    rts
-.endproc
 
 .proc pce_upload_cave
     st0 #VDC_MAWR
@@ -294,6 +72,9 @@ pce_debug_font_rows:
     rts
 .endproc
 
+; Upload one logical 16x16 cave object (2x2 BAT cells) from the shared
+; 32x28 render buffer. This is used for ordinary movement while the viewport
+; itself stays fixed.
 .proc pce_upload_object
     lda pce_obj_x
     sec
@@ -304,6 +85,7 @@ pce_debug_font_rows:
     sbc game_view_y
     sta pce_rel_y
 
+    ; Source pointer = game_cave_render + rel_y*128 + rel_x*4.
     lda #<game_cave_render
     sta pce_zp_src
     lda #>game_cave_render
@@ -332,6 +114,7 @@ pce_debug_font_rows:
     adc #$00
     sta pce_zp_src+1
 
+    ; BAT word address = rel_y*64 + rel_x*2.
     stz pce_addr_lo
     stz pce_addr_hi
     ldx pce_rel_y
@@ -356,6 +139,7 @@ pce_debug_font_rows:
     adc #$00
     sta pce_addr_hi
 
+    ; Top two character cells.
     ldy #$00
     lda (pce_zp_src),y
     sta pce_dirty_buf
@@ -378,6 +162,7 @@ pce_debug_font_rows:
     st0 #VDC_DATA
     tia pce_dirty_buf, VDC_DATA_L, 4
 
+    ; Bottom two cells are one 32-cell BAT row lower and 64 source bytes later.
     clc
     lda pce_zp_src
     adc #$40
@@ -422,14 +207,9 @@ pce_debug_font_rows:
     sei
     csh
 
-    stz pce_debug_stage
-    stz pce_debug_frame_lo
-    stz pce_debug_frame_hi
-    stz pce_debug_status
-    stz pce_debug_timeout_count
+    stz pce_vblank_timeout_count
+    stz pce_last_vdc_status
     stz VCE_CTRL
-
-    jsr pce_debug_init_line
 
     st0 #VDC_CR
     st1 #$00
@@ -473,8 +253,7 @@ pce_debug_font_rows:
     st0 #VDC_DATA
     tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
 
-    jsr pce_upload_debug_font
-
+    ; Clear complete 32x32 BAT while display is disabled.
     st0 #VDC_MAWR
     st1 #$00
     st2 #$00
@@ -492,7 +271,7 @@ pce_debug_font_rows:
 
     jsr pce_upload_cave
 
-    ; Temporary Cave 1 palette.
+    ; Temporary Cave 1 palette. Exact C64 palette calibration is deferred.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
     stz VCE_DATA_L
@@ -514,10 +293,7 @@ pce_debug_font_rows:
     stz VCE_DATA_L
     stz VCE_DATA_H
 
-    lda #$01
-    sta pce_debug_stage
-    jsr pce_debug_draw
-
+    ; BG on + VBlank event enabled.
     st0 #VDC_CR
     st1 #$88
     st2 #$00
@@ -542,42 +318,29 @@ pce_debug_font_rows:
 .endproc
 
 .proc platform_wait_frame
-    lda #$20
-    sta pce_debug_stage
-    jsr pce_debug_draw
-
-    ; Never hard-lock the game on a missing VBlank event. About 16K status
-    ; polls is comfortably longer than a normal frame on this code path.
+    ; Poll for a VBlank event, but never allow a lost event to hard-lock the
+    ; whole game. The timeout is intentionally long enough to cover a frame.
     stz pce_wait_lo
     lda #$40
     sta pce_wait_hi
 @wait_vblank:
     lda VDC_STATUS
-    sta pce_debug_status
+    sta pce_last_vdc_status
     and #$20
-    bne @got_vblank
+    bne @done
 
     dec pce_wait_lo
     bne @wait_vblank
     dec pce_wait_hi
     bne @wait_vblank
 
-    inc pce_debug_timeout_count
-    lda #$2f
-    sta pce_debug_stage
-    jsr pce_debug_draw
-    rts
-
-@got_vblank:
-    lda #$21
-    sta pce_debug_stage
+    inc pce_vblank_timeout_count
+@done:
     rts
 .endproc
 
 .proc platform_read_pad
-    lda #$10
-    sta pce_debug_stage
-
+    ; Reset to pad 1, then read active-low direction nibble with SEL=1.
     lda #$01
     sta JOYPAD
     lda #$03
@@ -593,6 +356,7 @@ pce_debug_font_rows:
     eor #$0f
     sta pce_raw_dpad
 
+    ; Buttons with SEL=0.
     lda #$00
     sta JOYPAD
     pha
@@ -664,10 +428,7 @@ pce_debug_font_rows:
 .endproc
 
 .proc platform_video_begin
-    lda #$30
-    sta pce_debug_stage
-    jsr pce_debug_draw
-
+    ; Ordinary movement updates only Rockford's old/new logical cells.
     lda game_view_x
     cmp pce_last_view_x
     bne @full
@@ -686,28 +447,12 @@ pce_debug_font_rows:
     lda game_player_y
     sta pce_obj_y
     jsr pce_upload_object
-
-    lda #$31
-    sta pce_debug_stage
     bra @remember
 
 @full:
-    lda #$40
-    sta pce_debug_stage
-    jsr pce_debug_draw
-
-    ; Safe fallback: blank BG while the full BAT is replaced.
-    st0 #VDC_CR
-    st1 #$08
-    st2 #$00
+    ; Viewport changed: refresh the shared 32x28 BAT directly. Do not blank
+    ; BG here; blanking caused the visible full-screen flash seen in Mednafen.
     jsr pce_upload_cave
-    jsr pce_debug_draw
-    st0 #VDC_CR
-    st1 #$88
-    st2 #$00
-
-    lda #$41
-    sta pce_debug_stage
 
 @remember:
     lda game_player_x
@@ -722,19 +467,10 @@ pce_debug_font_rows:
 .endproc
 
 .proc platform_video_end
-    lda #$45
-    sta pce_debug_stage
     rts
 .endproc
 
 .proc platform_audio_tick
-    inc pce_debug_frame_lo
-    bne :+
-    inc pce_debug_frame_hi
-:
-    lda #$50
-    sta pce_debug_stage
-    jsr pce_debug_draw
     ; Deferred milestone: HuC6280 PSG music and SFX backend.
     rts
 .endproc
