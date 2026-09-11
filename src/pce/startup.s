@@ -9,6 +9,13 @@
     sei
     csh
 
+    ; On reset the HuC6280 forces MPR7=$00, so physical HuCard bank $00 is
+    ; already visible at $E000-$FFFF and contains this startup plus vectors.
+    ; Keep it fixed and map physical bank $01 into MPR6 ($C000-$DFFF) for
+    ; large read-only assets / later banked content.
+    lda #$01
+    tam #$40
+
     ; Map hardware I/O into page $0000-$1FFF and 8 KiB work RAM into
     ; page $2000-$3FFF. The HuC6280 zero page and stack then live in RAM.
     lda #$FF
