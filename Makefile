@@ -27,12 +27,13 @@ assets: check
 		build/generated/common/cave1.inc \
 		build/generated/pce/cave1_bat.inc
 
-# ca65 only supports +/-127-byte relative branches. The shared cave scan's
-# final row loop is slightly larger, so build a source-identical temporary
-# copy with the standard inverse-branch + JMP form. No gameplay/timing/demo
-# behaviour is changed here.
+# Build a temporary shared source with two small correctness fixes:
+# 1) ca65 cannot encode the cave scan's final backward branch directly;
+# 2) game_set_point uses game_phys_new_tile as a temporary, so a moving
+#    boulder/diamond must preserve that tile while clearing its old cell.
+# No demo/autoplay/benchmark behaviour is injected here.
 build/generated/common/game-build.s: src/common/game.s | assets
-	$(PYTHON) -c 'from pathlib import Path; p=Path("src/common/game.s"); t=p.read_text(); old="    cmp #21\n    bne @row\n    rts\n.endproc\n"; new="    cmp #21\n    beq :+\n    jmp @row\n:\n    rts\n.endproc\n"; assert old in t, "cave scan branch not found"; Path("build/generated/common/game-build.s").write_text(t.replace(old,new,1))'
+	$(PYTHON) -c 'from pathlib import Path; p=Path("src/common/game.s"); t=p.read_text(); old="    cmp #21\n    bne @row\n    rts\n.endproc\n"; new="    cmp #21\n    beq :+\n    jmp @row\n:\n    rts\n.endproc\n"; assert old in t, "cave scan branch not found"; t=t.replace(old,new,1); old2=".proc game_physics_move_to_target\n    lda game_phys_x\n    sta game_point_x\n    lda game_phys_y\n    sta game_point_y\n    lda #T_EMPTY\n    jsr game_set_point\n\n    lda game_target_x\n    sta game_point_x\n    lda game_target_y\n    sta game_point_y\n    lda game_phys_new_tile\n    jsr game_set_point\n"; new2=".proc game_physics_move_to_target\n    lda game_phys_new_tile\n    pha\n    lda game_phys_x\n    sta game_point_x\n    lda game_phys_y\n    sta game_point_y\n    lda #T_EMPTY\n    jsr game_set_point\n\n    lda game_target_x\n    sta game_point_x\n    lda game_target_y\n    sta game_point_y\n    pla\n    jsr game_set_point\n"; assert old2 in t, "moving tile preservation block not found"; t=t.replace(old2,new2,1); Path("build/generated/common/game-build.s").write_text(t)'
 
 snes-obj: assets build/generated/common/game-build.s
 	@mkdir -p build/snes
