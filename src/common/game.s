@@ -13,6 +13,7 @@
 .export game_cave_render
 .export game_player_x
 .export game_player_y
+.export game_player_alive
 .export game_view_x
 .export game_view_y
 .export game_diamonds_got
@@ -44,6 +45,7 @@ T_SOIL           = $01
 T_BRICK          = $02
 T_EXIT_CLOSED    = $04
 T_EXIT_OPEN      = $05
+T_STEEL          = $07
 T_BOULDER_FIXED  = $10
 T_BOULDER_FIXED_ = $11
 T_BOULDER_FALL   = $12
@@ -52,6 +54,11 @@ T_DIAMOND_FIXED  = $14
 T_DIAMOND_FIXED_ = $15
 T_DIAMOND_FALL   = $16
 T_DIAMOND_FALL_  = $17
+T_XPL_EMPTY0     = $1b
+T_XPL_EMPTY1     = $1c
+T_XPL_EMPTY2     = $1d
+T_XPL_EMPTY3     = $1e
+T_XPL_EMPTY4     = $1f
 T_ROCKFORD       = $38
 
 .segment "ZEROPAGE"
@@ -66,25 +73,27 @@ game_pad_pressed:      .res 1
 game_video_dirty:      .res 1
 game_video_full_dirty: .res 1
 
-game_player_x: .res 1
-game_player_y: .res 1
-game_target_x: .res 1
-game_target_y: .res 1
-game_point_x:  .res 1
-game_point_y:  .res 1
-game_view_x:   .res 1
-game_view_y:   .res 1
+game_player_x:     .res 1
+game_player_y:     .res 1
+game_player_alive: .res 1
+game_target_x:     .res 1
+game_target_y:     .res 1
+game_point_x:      .res 1
+game_point_y:      .res 1
+game_view_x:       .res 1
+game_view_y:       .res 1
 
 game_render_row:  .res 1
 game_render_col:  .res 1
 game_render_base: .res 1
 
-game_phys_counter:   .res 1
-game_phys_x:         .res 1
-game_phys_y:         .res 1
-game_phys_fix_tile:  .res 1
-game_phys_fall_tile: .res 1
-game_phys_new_tile:  .res 1
+game_phys_counter:      .res 1
+game_phys_x:            .res 1
+game_phys_y:            .res 1
+game_phys_fix_tile:     .res 1
+game_phys_fall_tile:    .res 1
+game_phys_new_tile:     .res 1
+game_explosion_changed: .res 1
 
 game_diamonds_got:    .res 1
 game_diamonds_needed: .res 1
@@ -419,9 +428,10 @@ game_tile_char_map:
     rts
 .endproc
 
-; Convert per-scan marker variants back to active states. Newly moved objects
-; use marker variants so they cannot be processed twice in one top-down scan.
+; Explosion phases share the normal cave scan so we do not add another 880-byte
+; pass. Original empty explosion sequence is $1b,$1c,$1d,$1e,$1f -> empty.
 .proc game_physics_normalize
+    stz game_explosion_changed
     lda #<game_cave_state
     sta game_zp_src
     lda #>game_cave_state
@@ -447,8 +457,35 @@ game_tile_char_map:
     bra @store
 :
     cmp #T_DIAMOND_FALL_
-    bne @next
+    bne :+
     lda #T_DIAMOND_FALL
+    bra @store
+:
+    cmp #T_XPL_EMPTY0
+    bne :+
+    lda #T_XPL_EMPTY1
+    bra @expl_store
+:
+    cmp #T_XPL_EMPTY1
+    bne :+
+    lda #T_XPL_EMPTY2
+    bra @expl_store
+:
+    cmp #T_XPL_EMPTY2
+    bne :+
+    lda #T_XPL_EMPTY3
+    bra @expl_store
+:
+    cmp #T_XPL_EMPTY3
+    bne :+
+    lda #T_XPL_EMPTY4
+    bra @expl_store
+:
+    cmp #T_XPL_EMPTY4
+    bne @next
+    lda #T_EMPTY
+@expl_store:
+    inc game_explosion_changed
 @store:
     sta (game_zp_src),y
 @next:
@@ -477,14 +514,46 @@ game_tile_char_map:
     bra @tail_store
 :
     cmp #T_DIAMOND_FALL_
-    bne @tail_next
+    bne :+
     lda #T_DIAMOND_FALL
+    bra @tail_store
+:
+    cmp #T_XPL_EMPTY0
+    bne :+
+    lda #T_XPL_EMPTY1
+    bra @tail_expl_store
+:
+    cmp #T_XPL_EMPTY1
+    bne :+
+    lda #T_XPL_EMPTY2
+    bra @tail_expl_store
+:
+    cmp #T_XPL_EMPTY2
+    bne :+
+    lda #T_XPL_EMPTY3
+    bra @tail_expl_store
+:
+    cmp #T_XPL_EMPTY3
+    bne :+
+    lda #T_XPL_EMPTY4
+    bra @tail_expl_store
+:
+    cmp #T_XPL_EMPTY4
+    bne @tail_next
+    lda #T_EMPTY
+@tail_expl_store:
+    inc game_explosion_changed
 @tail_store:
     sta (game_zp_src),y
 @tail_next:
     iny
     cpy #112
     bne @tail
+
+    lda game_explosion_changed
+    beq @done
+    jsr game_mark_full_dirty
+@done:
     rts
 .endproc
 
@@ -516,6 +585,88 @@ game_tile_char_map:
     sta game_point_y
     lda game_phys_fall_tile
     jsr game_set_point
+    jsr game_mark_full_dirty
+    rts
+.endproc
+
+; Write one explosion tile unless the destination is a steel wall.
+.proc game_explosion_write
+    sta game_phys_new_tile
+    jsr game_get_point
+    cmp #T_STEEL
+    beq @done
+    lda game_phys_new_tile
+    jsr game_set_point
+@done:
+    rts
+.endproc
+
+; DynExplodeDropHandler from the original affects a 3x3 area starting on the
+; falling object's row. It starts with Empty1 for left/centre, then Empty0 for
+; the remaining seven cells. Steel walls survive the blast.
+.proc game_explode_drop
+    stz game_player_alive
+
+    lda game_phys_x
+    dec a
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    lda #T_XPL_EMPTY1
+    jsr game_explosion_write
+
+    lda game_phys_x
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    lda #T_XPL_EMPTY1
+    jsr game_explosion_write
+
+    lda game_phys_x
+    inc a
+    sta game_point_x
+    lda game_phys_y
+    sta game_point_y
+    lda #T_XPL_EMPTY0
+    jsr game_explosion_write
+
+    lda game_phys_y
+    inc a
+    sta game_point_y
+    lda game_phys_x
+    dec a
+    sta game_point_x
+    lda #T_XPL_EMPTY0
+    jsr game_explosion_write
+    lda game_phys_x
+    sta game_point_x
+    lda #T_XPL_EMPTY0
+    jsr game_explosion_write
+    lda game_phys_x
+    inc a
+    sta game_point_x
+    lda #T_XPL_EMPTY0
+    jsr game_explosion_write
+
+    lda game_phys_y
+    clc
+    adc #2
+    sta game_point_y
+    lda game_phys_x
+    dec a
+    sta game_point_x
+    lda #T_XPL_EMPTY0
+    jsr game_explosion_write
+    lda game_phys_x
+    sta game_point_x
+    lda #T_XPL_EMPTY0
+    jsr game_explosion_write
+    lda game_phys_x
+    inc a
+    sta game_point_x
+    lda #T_XPL_EMPTY0
+    jsr game_explosion_write
+
     jsr game_mark_full_dirty
     rts
 .endproc
@@ -614,6 +765,12 @@ game_tile_char_map:
     inc a
     sta game_point_y
     jsr game_get_point
+    cmp #T_ROCKFORD
+    bne :+
+    jsr game_explode_drop
+    bra @done
+:
+    cmp #T_EMPTY
     beq @fall
     jsr game_physics_is_rounded
     bcc @rest
@@ -767,7 +924,6 @@ game_tile_char_map:
     jmp @no
 :
 
-    ; game_point_x/y still identify the free cell beyond the boulder.
     lda #T_BOULDER_FIXED_
     jsr game_set_point
 
@@ -849,6 +1005,10 @@ game_tile_char_map:
 .endproc
 
 .proc game_handle_player
+    lda game_player_alive
+    bne :+
+    rts
+:
     lda game_pad_pressed
     and #PAD_LEFT
     beq @right
@@ -917,11 +1077,14 @@ game_tile_char_map:
     sta game_view_x
     sta game_view_y
     sta game_phys_counter
+    sta game_explosion_changed
     sta game_diamonds_got
     sta game_score_lo
     sta game_score_hi
     sta game_exit_open
 
+    lda #1
+    sta game_player_alive
     lda #CAVE1_DIAMONDS_NEEDED
     sta game_diamonds_needed
     lda #$5a
