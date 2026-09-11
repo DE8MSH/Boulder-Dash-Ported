@@ -2,6 +2,7 @@
 
 .import game_init
 .import game_tick
+.import snes_benchmark_nmi
 
 .segment "STARTUP"
 
@@ -57,7 +58,7 @@
     .word default_irq           ; COP
     .word default_irq           ; BRK
     .word default_irq           ; ABORT
-    .word default_irq           ; NMI
+    .word snes_benchmark_nmi    ; NMI
     .word $0000                 ; reserved
     .word default_irq           ; IRQ
 
@@ -67,6 +68,6 @@
     .word default_irq           ; COP
     .word $0000                 ; reserved
     .word default_irq           ; ABORT
-    .word default_irq           ; NMI
+    .word snes_benchmark_nmi    ; NMI
     .word reset                 ; RESET
     .word default_irq           ; IRQ/BRK
