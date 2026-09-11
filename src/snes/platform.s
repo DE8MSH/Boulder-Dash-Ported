@@ -6,8 +6,6 @@
 
 .import game_cave_render
 .import game_progress_tick
-.import game_cave_complete
-.import snes_benchmark_draw
 
 INIDISP  = $2100
 BGMODE   = $2105
@@ -45,16 +43,12 @@ pad_result: .res 1
 .segment "CODE"
 
 .proc snes_upload_cave
-    ; BG1 tilemap starts at VRAM word $1000. VBlank DMA is fast enough to
-    ; transfer the complete 32x28 shared tilemap without forcing the display
-    ; blank, so movement no longer flashes the screen.
     lda #$80
     sta VMAIN
     stz VMADDL
     lda #$10
     sta VMADDH
 
-    ; DMA mode 1 alternates writes to $2118/$2119 (VRAM low/high data).
     lda #$01
     sta DMAP0
     lda #$18
@@ -103,9 +97,6 @@ pad_result: .res 1
 
     lda #$80
     sta VMAIN
-
-    ; Upload graphics beginning at SNES tile $40 so SNES and PCE can consume
-    ; the same shared render words without translation.
     stz VMADDL
     lda #$04
     sta VMADDH
@@ -123,7 +114,6 @@ pad_result: .res 1
     cpx #bd_charset_snes_bytes
     bne @upload_tiles
 
-    ; Clear complete 32x32 BG1 tilemap while display is still forced blank.
     stz VMADDL
     lda #$10
     sta VMADDH
@@ -138,21 +128,18 @@ pad_result: .res 1
 
     jsr snes_upload_cave
 
-    ; Cave 1 C64 multicolor palette from its original header:
-    ; $08 orange, $0b dark gray, $09 brown.  The RGB values are converted to
-    ; SNES BGR555 while palette entry 0 remains black.
     stz CGADD
     stz CGDATA
     stz CGDATA
-    lda #$fa                    ; C64 orange  -> $15fa
+    lda #$fa
     sta CGDATA
     lda #$15
     sta CGDATA
-    lda #$8c                    ; C64 dark gray -> $318c
+    lda #$8c
     sta CGDATA
     lda #$31
     sta CGDATA
-    lda #$6d                    ; C64 brown -> $0d6d
+    lda #$6d
     sta CGDATA
     lda #$0d
     sta CGDATA
@@ -160,9 +147,8 @@ pad_result: .res 1
     lda #$01
     sta TM
 
-    ; PAL benchmark timing is counted by the VBlank NMI. Bit 7 enables NMI;
-    ; bit 0 keeps automatic joypad sampling enabled.
-    lda #%10000001
+    ; Automatic joypad sampling only. No benchmark NMI.
+    lda #%00000001
     sta NMITIMEN
 
 @wait_vblank:
@@ -244,15 +230,7 @@ pad_result: .res 1
 .endproc
 
 .proc platform_video_begin
-    ; game_tick calls this immediately after platform_wait_frame, so this DMA
-    ; begins inside VBlank and requires no visible force-blank interval.
     jsr snes_upload_cave
-
-    ; Always draw the frozen benchmark after the cave DMA, in the same VBlank.
-    lda game_cave_complete
-    beq @done
-    jsr snes_benchmark_draw
-@done:
     rts
 .endproc
 
