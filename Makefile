@@ -27,17 +27,13 @@ assets: check
 		build/generated/common/cave1.inc \
 		build/generated/pce/cave1_bat.inc
 
-# Build a temporary shared source with two small correctness fixes:
-# 1) ca65 cannot encode the cave scan's final backward branch directly;
-# 2) game_set_point uses game_phys_new_tile as a temporary, so a moving
-#    boulder/diamond must preserve that tile while clearing its old cell.
-# No demo/autoplay/benchmark behaviour is injected here.
-build/generated/common/game-build.s: src/common/game.s | assets
-	$(PYTHON) -c 'from pathlib import Path; p=Path("src/common/game.s"); t=p.read_text(); old="    cmp #21\n    bne @row\n    rts\n.endproc\n"; new="    cmp #21\n    beq :+\n    jmp @row\n:\n    rts\n.endproc\n"; assert old in t, "cave scan branch not found"; t=t.replace(old,new,1); old2=".proc game_physics_move_to_target\n    lda game_phys_x\n    sta game_point_x\n    lda game_phys_y\n    sta game_point_y\n    lda #T_EMPTY\n    jsr game_set_point\n\n    lda game_target_x\n    sta game_point_x\n    lda game_target_y\n    sta game_point_y\n    lda game_phys_new_tile\n    jsr game_set_point\n"; new2=".proc game_physics_move_to_target\n    lda game_phys_new_tile\n    pha\n    lda game_phys_x\n    sta game_point_x\n    lda game_phys_y\n    sta game_point_y\n    lda #T_EMPTY\n    jsr game_set_point\n\n    lda game_target_x\n    sta game_point_x\n    lda game_target_y\n    sta game_point_y\n    pla\n    jsr game_set_point\n"; assert old2 in t, "moving tile preservation block not found"; t=t.replace(old2,new2,1); Path("build/generated/common/game-build.s").write_text(t)'
+build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-source.py | assets
+	$(PYTHON) scripts/prepare-game-source.py src/common/game.s build/generated/common/game-build.s
 
 snes-obj: assets build/generated/common/game-build.s
 	@mkdir -p build/snes
 	cd src/common && $(CA65) --cpu 65816 ../../build/generated/common/game-build.s -I . -o ../../build/snes/game.o
+	cd src/common && $(CA65) --cpu 65816 game_caves_runtime.s -o ../../build/snes/game_caves_runtime.o
 	cd src/common && $(CA65) --cpu 65816 game_flow.s -o ../../build/snes/game_flow.o
 	cd src/common && $(CA65) --cpu 65816 game_progress.s -o ../../build/snes/game_progress.o
 	cd src/common && $(CA65) --cpu 65816 cave_preview.s -o ../../build/snes/cave_preview.o
@@ -48,6 +44,7 @@ snes-obj: assets build/generated/common/game-build.s
 pce-obj: assets build/generated/common/game-build.s
 	@mkdir -p build/pce
 	cd src/common && $(CA65) --cpu huc6280 ../../build/generated/common/game-build.s -I . -o ../../build/pce/game.o
+	cd src/common && $(CA65) --cpu huc6280 game_caves_runtime.s -o ../../build/pce/game_caves_runtime.o
 	cd src/common && $(CA65) --cpu huc6280 game_flow.s -o ../../build/pce/game_flow.o
 	cd src/common && $(CA65) --cpu huc6280 game_progress.s -o ../../build/pce/game_progress.o
 	cd src/common && $(CA65) --cpu huc6280 cave_preview.s -o ../../build/pce/cave_preview.o
@@ -58,13 +55,13 @@ pce-obj: assets build/generated/common/game-build.s
 snes-rom: snes-obj
 	$(LD65) -C cfg/snes-lorom.cfg -m build/snes/boulder-dash.map \
 		-o build/snes/boulder-dash.sfc \
-		build/snes/startup.o build/snes/game.o build/snes/game_flow.o build/snes/game_progress.o build/snes/cave_preview.o build/snes/platform.o
+		build/snes/startup.o build/snes/game.o build/snes/game_caves_runtime.o build/snes/game_flow.o build/snes/game_progress.o build/snes/cave_preview.o build/snes/platform.o
 	@echo "built build/snes/boulder-dash.sfc"
 
 pce-rom: pce-obj
 	$(LD65) -C cfg/pce-hucard.cfg -m build/pce/boulder-dash.map \
 		-o build/pce/boulder-dash.pce \
-		build/pce/startup.o build/pce/game.o build/pce/game_flow.o build/pce/game_progress.o build/pce/cave_preview.o build/pce/platform.o
+		build/pce/startup.o build/pce/game.o build/pce/game_caves_runtime.o build/pce/game_flow.o build/pce/game_progress.o build/pce/cave_preview.o build/pce/platform.o
 	@echo "built build/pce/boulder-dash.pce"
 
 selfplay: check
