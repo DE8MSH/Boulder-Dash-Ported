@@ -48,6 +48,9 @@ build/generated/common/game-build.s: src/common/game.s scripts/prepare-game-sour
 	$(PYTHON) scripts/enable-autoplayer.py build/generated/common/game-build.s
 	$(PYTHON) scripts/fix-generated-branches.py build/generated/common/game-build.s
 
+build/generated/common/game-autoplay-build.s: src/common/game_autoplay.s scripts/prepare-autoplayer.py | assets
+	$(PYTHON) scripts/prepare-autoplayer.py src/common/game_autoplay.s build/generated/common/game-autoplay-build.s
+
 build/generated/snes/platform-build.s: src/snes/platform.s scripts/prepare-snes-platform.py scripts/fix-generated-platform-video.py scripts/fix-generated-cave-palettes.py | assets
 	$(PYTHON) scripts/prepare-snes-platform.py src/snes/platform.s build/generated/snes/platform-build.s
 	$(PYTHON) scripts/fix-generated-platform-video.py snes build/generated/snes/platform-build.s
@@ -58,10 +61,10 @@ build/generated/pce/platform-build.s: src/pce/platform.s scripts/prepare-pce-pla
 	$(PYTHON) scripts/fix-generated-platform-video.py pce build/generated/pce/platform-build.s
 	$(PYTHON) scripts/fix-generated-cave-palettes.py pce build/generated/pce/platform-build.s
 
-snes-obj: assets build/generated/common/game-build.s build/generated/snes/platform-build.s
+snes-obj: assets build/generated/common/game-build.s build/generated/common/game-autoplay-build.s build/generated/snes/platform-build.s
 	@mkdir -p build/snes
 	cd src/common && $(CA65) --cpu 65816 ../../build/generated/common/game-build.s -I . -o ../../build/snes/game.o
-	cd src/common && $(CA65) --cpu 65816 game_autoplay.s -o ../../build/snes/game_autoplay.o
+	cd src/common && $(CA65) --cpu 65816 ../../build/generated/common/game-autoplay-build.s -I . -o ../../build/snes/game_autoplay.o
 	cd src/common && $(CA65) --cpu 65816 game_caves_runtime.s -o ../../build/snes/game_caves_runtime.o
 	cd src/common && $(CA65) --cpu 65816 game_flow.s -o ../../build/snes/game_flow.o
 	cd src/common && $(CA65) --cpu 65816 game_progress.s -o ../../build/snes/game_progress.o
@@ -70,10 +73,10 @@ snes-obj: assets build/generated/common/game-build.s build/generated/snes/platfo
 	cd src/snes && $(CA65) startup.s -o ../../build/snes/startup.o
 	@echo "built SNES objects (65C816)"
 
-pce-obj: assets build/generated/common/game-build.s build/generated/pce/platform-build.s
+pce-obj: assets build/generated/common/game-build.s build/generated/common/game-autoplay-build.s build/generated/pce/platform-build.s
 	@mkdir -p build/pce
 	cd src/common && $(CA65) --cpu huc6280 ../../build/generated/common/game-build.s -I . -o ../../build/pce/game.o
-	cd src/common && $(CA65) --cpu huc6280 game_autoplay.s -o ../../build/pce/game_autoplay.o
+	cd src/common && $(CA65) --cpu huc6280 ../../build/generated/common/game-autoplay-build.s -I . -o ../../build/pce/game_autoplay.o
 	cd src/common && $(CA65) --cpu huc6280 game_caves_runtime.s -o ../../build/pce/game_caves_runtime.o
 	cd src/common && $(CA65) --cpu huc6280 game_flow.s -o ../../build/pce/game_flow.o
 	cd src/common && $(CA65) --cpu huc6280 game_progress.s -o ../../build/pce/game_progress.o
