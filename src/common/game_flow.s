@@ -5,6 +5,7 @@
 .import game_cave_render
 .import game_build_cave2
 .import game_build_cave3
+.import game_build_cave4
 .import game_video_dirty
 .import game_video_full_dirty
 .import game_pad_current
@@ -44,6 +45,9 @@ CAVE2_PLAYER_Y = 21
 CAVE3_DIAMONDS_NEEDED = 24
 CAVE3_PLAYER_X = 3
 CAVE3_PLAYER_Y = 4
+CAVE4_DIAMONDS_NEEDED = 36
+CAVE4_PLAYER_X = 1
+CAVE4_PLAYER_Y = 3
 INITIAL_LIVES = 3
 T_ROCKFORD = $38
 
@@ -119,6 +123,8 @@ game_current_cave: .res 1
     beq @cave2
     cmp #3
     beq @cave3
+    cmp #4
+    beq @cave4
 
     jsr game_flow_copy_cave1
     jsr game_flow_place_rockford1
@@ -148,6 +154,16 @@ game_current_cave: .res 1
     sta game_player_x
     lda #CAVE3_PLAYER_Y
     sta game_player_y
+    bra @common
+
+@cave4:
+    jsr game_build_cave4
+    lda #CAVE4_DIAMONDS_NEEDED
+    sta game_diamonds_needed
+    lda #CAVE4_PLAYER_X
+    sta game_player_x
+    lda #CAVE4_PLAYER_Y
+    sta game_player_y
 
 @common:
     stz game_pad_current
@@ -174,7 +190,7 @@ game_current_cave: .res 1
 
 .proc game_flow_next_cave
     lda game_current_cave
-    cmp #3
+    cmp #4
     bcs @done
     inc game_current_cave
     jsr game_flow_reset_attempt
