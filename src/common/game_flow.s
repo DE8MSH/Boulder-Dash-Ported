@@ -19,6 +19,7 @@
 .import game_exit_open
 .import game_score_lo
 .import game_score_hi
+.import game_update_view
 .import game_render_cave
 
 .export game_flow_init
@@ -141,10 +142,7 @@ game_current_cave: .res 1
     lda #1
     sta game_player_alive
 
-    ; game_update_view is called by the first player movement. Start each cave
-    ; at the C64 field's top-left view and render the complete current state.
-    stz game_view_x
-    stz game_view_y
+    jsr game_update_view
     jsr game_render_cave
     lda #1
     sta game_video_dirty
@@ -190,8 +188,6 @@ game_current_cave: .res 1
     rts
 .endproc
 
-; A contains the remaining cave seconds. Boulder Dash transfers the remaining
-; time into score after the exit is reached.
 .proc game_flow_add_time_bonus
     clc
     adc game_score_lo
