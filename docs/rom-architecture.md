@@ -1,42 +1,54 @@
 # ROM architecture
 
-The ports keep platform startup/vectors in a fixed boot bank and leave game
-content free to move into additional banks as the C64 feature set grows.
+The ports keep platform startup/vectors in a fixed boot bank and move coherent
+asset groups into later banks as the C64 feature set grows.
 
 ## SNES
 
 - Native mapper: LoROM.
 - Bank granularity: 32 KiB at CPU `$8000-$FFFF`.
-- Bank 0 keeps startup, header and vectors.
+- Bank 0 keeps startup, shared gameplay, platform code, header and vectors.
 - Header remains at file `$7FC0`; vectors remain at file `$7FE0-$7FFF`.
-- Additional code/data should be placed in later 32 KiB LoROM banks instead of
-  forcing everything into bank 0.
-- Same-bank routines continue to use `JSR/RTS`. Cross-bank calls must use a
-  platform trampoline or `JSL/RTL`; shared 6502-like game code should not gain
-  hidden bank assumptions.
+- Bank 1 contains the generated title-screen graphics/map derived directly
+  from `B1_Title.asm` and `B1_ChrS.asm`.
+- The current image is 64 KiB (two LoROM banks); the header ROM-size byte is
+  `$06`.
+- Same-bank routines use `JSR/RTS`. Cross-bank executable code must use an
+  explicit trampoline or `JSL/RTL`; the current intro bank contains data only.
 - WRAM game state remains separate from ROM banking.
 
 ## PC Engine
 
-- HuCard ROM is split into physical 8 KiB pages selected by the HuC6280 MPRs.
-- On reset the CPU forces `MPR7=$00`. Therefore physical HuCard bank `$00`
-  must contain startup and vectors and appears at logical `$E000-$FFFF`.
-- Reset/IRQ vectors remain at physical ROM offsets `$1FF6-$1FFF`, not at the
-  end of an expanded multi-bank image.
-- The current 16 KiB layout maps physical bank `$01` permanently through
-  `MPR6` at logical `$C000-$DFFF`.
-- The converted C64 charset lives in bank `$01`; startup, shared game code,
-  platform code and vectors remain in bank `$00` for now.
-- Future banks can be switched through another dedicated MPR window with
-  `TAM`/`TMA`; bank-switching helpers and interrupt/startup code must remain in
-  fixed bank `$00`.
+- HuCard ROM is split into physical 8 KiB pages selected by HuC6280 MPRs.
+- On reset `MPR7=$00`, so physical bank `$00` contains startup, fixed code and
+  vectors and appears at logical `$E000-$FFFF`.
+- Reset/IRQ vectors remain at physical ROM offsets `$1FF6-$1FFF`.
+- Bank `$01` is permanently mapped through `MPR6` at `$C000-$DFFF` during
+  gameplay and contains the converted cave charset.
+- Intro graphics use physical banks `$02` and `$03`. `platform_init` maps them
+  temporarily through `MPR6`, expands the packed 2bpp C64-derived title tiles
+  into 4bpp VRAM, uploads the BAT, then restores bank `$01` before gameplay.
+- The current image is 32 KiB (four 8 KiB HuCard banks).
 - Shared RAM state stays at `$2200+` and never depends on the mapped ROM bank.
+
+## Intro asset pipeline
+
+- `scripts/generate-intro.py` reads the first 1000 screen bytes from the
+  original `B1_Title.asm` (40x25 C64 screen) and the matching glyphs from
+  `B1_ChrS.asm`.
+- It reconstructs the original 320x200 multicolor picture using the VIC-II
+  2-bit color roles and samples it horizontally to the consoles' stable
+  256-pixel mode. The artwork and text therefore come from the original ASM;
+  only the unavoidable 320-to-256 hardware-width conversion is performed.
+- Start-screen colors use the original C64 roles: black background, blue
+  multicolor 1, light-blue multicolor 2 and white character foreground.
 
 ## Build rules
 
 - SNES images grow in whole 32 KiB banks.
 - PCE images grow in whole 8 KiB banks.
-- `scripts/check-roms.py` validates the SNES bank-0 vectors and the PCE
-  physical bank-0 reset vector even when later banks are present.
+- `scripts/check-roms.py` currently verifies the expected 64 KiB SNES and
+  32 KiB PCE layouts, including the fixed reset-vector locations and non-empty
+  intro banks.
 - Do not enlarge a ROM merely to hide a linker overflow. Add a banked segment
   deliberately and place a coherent asset/code group there.
