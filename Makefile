@@ -20,7 +20,7 @@ check-emulator:
 
 assets: check
 	@mkdir -p build/generated/snes build/generated/pce build/generated/common
-	$(PYTHON) scripts/convert-charset.py B1_ChrS.asm --limit 64 \
+	$(PYTHON) scripts/convert-charset.py B1_ChrS.asm --limit 128 \
 		--snes-out build/generated/snes/charset.inc \
 		--pce-out build/generated/pce/charset.inc
 	$(PYTHON) scripts/generate-cave1.py \
