@@ -83,7 +83,19 @@ pce_raw_buttons: .res 1
     ldy #$00
     jsr vdc_write_xy
 
-    ; Clear the 32x32 BAT at VRAM word $0000.
+    ; Upload generated 4bpp tiles to VRAM word $0400 first. Chr_00 is a
+    ; guaranteed blank character and becomes tile $40.
+    lda #VDC_MAWR
+    ldx #<PCE_PATTERN_WORD
+    ldy #>PCE_PATTERN_WORD
+    jsr vdc_write_xy
+    lda #VDC_DATA
+    sta VDC_REG
+    tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
+
+    ; Fill the complete 32x32 BAT with tile $40 (Chr_00), not tile 0.
+    ; Tile 0 would point back into the BAT itself because the BAT occupies
+    ; VRAM $0000-$03ff; using the dedicated blank tile avoids self-reference.
     lda #VDC_MAWR
     ldx #$00
     ldy #$00
@@ -94,23 +106,14 @@ pce_raw_buttons: .res 1
 @clear_page:
     ldx #$00
 @clear_word:
-    stz VDC_DATA_L
-    stz VDC_DATA_H
+    lda #<PCE_PATTERN_TILE
+    sta VDC_DATA_L
+    lda #>PCE_PATTERN_TILE
+    sta VDC_DATA_H
     inx
     bne @clear_word
     dey
     bne @clear_page
-
-    ; Upload generated 4bpp tiles to VRAM word $0400. TIA increments the ROM
-    ; source and alternates destination writes between VDC_DATA_L/H, matching
-    ; the VDC's 16-bit write port exactly.
-    lda #VDC_MAWR
-    ldx #<PCE_PATTERN_WORD
-    ldy #>PCE_PATTERN_WORD
-    jsr vdc_write_xy
-    lda #VDC_DATA
-    sta VDC_REG
-    tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
 
     ; First two BAT rows show converted Chr_00..Chr_3f.
     lda #VDC_MAWR
@@ -132,16 +135,26 @@ pce_raw_buttons: .res 1
     cpx #bd_charset_pce_count
     bne @write_test_map
 
-    ; Palette 0: dark blue background, white foreground for C64 set pixels.
+    ; BG palette 0: dark blue background, white foreground for C64 set pixels.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
-    lda #$03            ; color 0 = dark blue
+    lda #$03            ; palette $000 color 0 = dark blue
     sta VCE_DATA_L
     stz VCE_DATA_H
-    lda #$ff            ; color 1 = white ($01ff)
+    lda #$ff            ; palette $000 color 1 = white ($01ff)
     sta VCE_DATA_L
     lda #$01
     sta VCE_DATA_H
+
+    ; The PCE's backdrop when no opaque BG pixel is present comes from color 0
+    ; of the first sprite palette (VCE entry $100). Initialize that too so an
+    ; empty/transparent area is deterministic rather than power-on white.
+    stz VCE_ADDR_L
+    lda #$01
+    sta VCE_ADDR_H
+    lda #$03
+    sta VCE_DATA_L
+    stz VCE_DATA_H
 
     ; Enable VBlank event and background display; sprites remain off.
     lda #VDC_CR
