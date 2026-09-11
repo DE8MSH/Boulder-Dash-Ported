@@ -313,10 +313,17 @@ pce_dirty_buf:     .res 4
 .endproc
 
 .proc platform_wait_frame
-@wait_vblank:
+    ; VDC status bit 5 is an event flag. First consume/leave any current
+    ; VBlank indication, then wait for the next VBlank event. This prevents
+    ; several game ticks from running inside one VBlank interval.
+@leave_vblank:
     lda VDC_STATUS
     and #$20
-    beq @wait_vblank
+    bne @leave_vblank
+@enter_vblank:
+    lda VDC_STATUS
+    and #$20
+    beq @enter_vblank
     rts
 .endproc
 
@@ -402,39 +409,8 @@ pce_dirty_buf:     .res 4
     sta pad_result
 :
 
-    ; The common core currently reacts to newly-pressed directions. Convert a
-    ; held PCE direction into a new pulse every six frames so holding the pad
-    ; feels continuous instead of looking like a freeze after one step.
-    lda pad_result
-    and #(PAD_LEFT | PAD_RIGHT | PAD_UP | PAD_DOWN)
-    beq @no_direction
-    cmp pce_repeat_dir
-    bne @new_direction
-
-    inc pce_repeat_count
-    lda pce_repeat_count
-    cmp #6
-    bcs @repeat_now
-
-    lda pad_result
-    and #$f0
-    sta pad_result
-    bra @return
-
-@repeat_now:
-    stz pce_repeat_count
-    bra @return
-
-@new_direction:
-    sta pce_repeat_dir
-    stz pce_repeat_count
-    bra @return
-
-@no_direction:
-    stz pce_repeat_dir
-    stz pce_repeat_count
-
-@return:
+    ; Return the physical pad state exactly as read. The common core converts
+    ; it to newly-pressed edges, so one press moves exactly one logical cell.
     lda pad_result
     rts
 .endproc
