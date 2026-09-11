@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Put a tiny 4x7 benchmark font into unused indexed charset slots $70-$7b."""
+"""Put a tiny 4x7 benchmark font into unused indexed charset slots $02-$0d."""
 
 from pathlib import Path
 import sys
@@ -39,7 +39,7 @@ def encode(rows):
 
 def patch(path: Path):
     lines = path.read_text(encoding="utf-8").splitlines()
-    for slot, ch in zip(range(0x70, 0x7c), "0123456789MS"):
+    for slot, ch in zip(range(0x02, 0x0e), "0123456789MS"):
         marker = f"    ; character ${slot:02X}"
         try:
             i = lines.index(marker)
