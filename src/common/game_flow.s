@@ -4,6 +4,7 @@
 .import game_cave_state
 .import game_cave_render
 .import game_build_cave2
+.import game_build_cave3
 .import game_video_dirty
 .import game_video_full_dirty
 .import game_pad_current
@@ -40,6 +41,9 @@ CAVE1_PLAYER_OFFSET = (CAVE1_PLAYER_Y * 40) + CAVE1_PLAYER_X
 CAVE2_DIAMONDS_NEEDED = 10
 CAVE2_PLAYER_X = 18
 CAVE2_PLAYER_Y = 21
+CAVE3_DIAMONDS_NEEDED = 24
+CAVE3_PLAYER_X = 3
+CAVE3_PLAYER_Y = 4
 INITIAL_LIVES = 3
 T_ROCKFORD = $38
 
@@ -113,6 +117,8 @@ game_current_cave: .res 1
     lda game_current_cave
     cmp #2
     beq @cave2
+    cmp #3
+    beq @cave3
 
     jsr game_flow_copy_cave1
     jsr game_flow_place_rockford1
@@ -131,6 +137,16 @@ game_current_cave: .res 1
     lda #CAVE2_PLAYER_X
     sta game_player_x
     lda #CAVE2_PLAYER_Y
+    sta game_player_y
+    bra @common
+
+@cave3:
+    jsr game_build_cave3
+    lda #CAVE3_DIAMONDS_NEEDED
+    sta game_diamonds_needed
+    lda #CAVE3_PLAYER_X
+    sta game_player_x
+    lda #CAVE3_PLAYER_Y
     sta game_player_y
 
 @common:
@@ -158,10 +174,9 @@ game_current_cave: .res 1
 
 .proc game_flow_next_cave
     lda game_current_cave
-    cmp #1
-    bne @done
-    lda #2
-    sta game_current_cave
+    cmp #3
+    bcs @done
+    inc game_current_cave
     jsr game_flow_reset_attempt
 @done:
     rts
