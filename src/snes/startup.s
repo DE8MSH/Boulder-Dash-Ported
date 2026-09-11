@@ -10,11 +10,16 @@
     clc
     xce
 
+    ; Enter a known native-mode state. X/Y must be 16-bit before loading
+    ; the 16-bit stack pointer value, otherwise ca65 treats #$1FFF as an
+    ; 8-bit immediate and correctly reports a range error.
     rep #$30
     lda #$0000
     tcd
     ldx #$1FFF
     txs
+
+    ; Keep the shared game core deliberately 6502-like after startup.
     sep #$30
 
     jsr game_init
