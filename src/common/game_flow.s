@@ -2,6 +2,7 @@
 
 .import game_cave_initial
 .import game_cave_state
+.import game_cave_render
 .import game_video_dirty
 .import game_video_full_dirty
 .import game_pad_current
@@ -17,6 +18,7 @@
 .import game_exit_open
 .import game_score_lo
 .import game_score_hi
+.import game_render_cave
 
 .export game_flow_init
 .export game_flow_lose_life
@@ -28,7 +30,9 @@ CAVE_BYTES = 880
 CAVE1_DIAMONDS_NEEDED = 12
 CAVE1_PLAYER_X = 3
 CAVE1_PLAYER_Y = 4
+CAVE1_PLAYER_OFFSET = (CAVE1_PLAYER_Y * 40) + CAVE1_PLAYER_X
 INITIAL_LIVES = 3
+T_ROCKFORD = $38
 
 .segment "ZEROPAGE"
 flow_zp_src: .res 2
@@ -80,8 +84,23 @@ game_game_over: .res 1
     rts
 .endproc
 
+.proc game_flow_place_rockford
+    ; The generated Cave 1 still contains the original birth object at (3,4).
+    ; game_init replaces it with Rockford; a respawn must do the same or the
+    ; cave scan never encounters Rockford and controls appear frozen.
+    lda #<(game_cave_state + CAVE1_PLAYER_OFFSET)
+    sta flow_zp_dst
+    lda #>(game_cave_state + CAVE1_PLAYER_OFFSET)
+    sta flow_zp_dst+1
+    ldy #0
+    lda #T_ROCKFORD
+    sta (flow_zp_dst),y
+    rts
+.endproc
+
 .proc game_flow_reset_attempt
     jsr game_flow_copy_cave1
+    jsr game_flow_place_rockford
 
     stz game_pad_current
     stz game_pad_previous
@@ -99,6 +118,11 @@ game_game_over: .res 1
     sta game_player_y
     lda #1
     sta game_player_alive
+
+    ; Rebuild the shared render buffer before either console uploads the reset
+    ; cave. This keeps the logical cave and displayed cave in sync immediately.
+    jsr game_render_cave
+    lda #1
     sta game_video_dirty
     sta game_video_full_dirty
     rts
