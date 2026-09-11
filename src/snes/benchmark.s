@@ -15,16 +15,18 @@ VMDATAH = $2119
 FONT_TILE_BASE = $b0
 FONT_M_TILE    = $ba
 FONT_S_TILE    = $bb
-OVERLAY_VRAM   = $1019       ; BG1 row 0, column 25
+FONT_VRAM      = $0b00
+OVERLAY_VRAM   = $1019
+FONT_BYTES     = 384
 
 .segment "BSS"
 bench_frac:  .res 1
 bench_count: .res 1
-bench_d0:    .res 1          ; ten-thousands
+bench_d0:    .res 1
 bench_d1:    .res 1
 bench_d2:    .res 1
 bench_d3:    .res 1
-bench_d4:    .res 1          ; units
+bench_d4:    .res 1
 
 .segment "CODE"
 
@@ -35,6 +37,27 @@ bench_d4:    .res 1          ; units
     stz bench_d2
     stz bench_d3
     stz bench_d4
+
+    lda #$80
+    sta VMAIN
+    lda #<FONT_VRAM
+    sta VMADDL
+    lda #>FONT_VRAM
+    sta VMADDH
+    rep #$10
+    .i16
+    ldx #0
+@font:
+    lda benchmark_font,x
+    sta VMDATAL
+    inx
+    lda benchmark_font,x
+    sta VMDATAH
+    inx
+    cpx #FONT_BYTES
+    bne @font
+    sep #$10
+    .i8
     rts
 .endproc
 
@@ -69,9 +92,6 @@ bench_d4:    .res 1          ; units
 .endproc
 
 .proc platform_benchmark_tick
-    ; NTSC SNES frame ~= 16.639 ms. 16 ms plus an 8-bit fractional
-    ; accumulator (164/256 ~= .641 ms) is accurate enough for comparing the
-    ; two ports over one Cave 1 autoplay run.
     lda #16
     sta bench_count
     clc
@@ -94,7 +114,6 @@ bench_d4:    .res 1          ; units
     sta VMADDL
     lda #>OVERLAY_VRAM
     sta VMADDH
-
     ldx #0
 @digits:
     lda bench_d0,x
@@ -105,7 +124,6 @@ bench_d4:    .res 1          ; units
     inx
     cpx #5
     bne @digits
-
     lda #FONT_M_TILE
     sta VMDATAL
     stz VMDATAH
@@ -114,3 +132,18 @@ bench_d4:    .res 1          ; units
     stz VMDATAH
     rts
 .endproc
+
+.segment "RODATA"
+benchmark_font:
+    .byte $3c,$00,$c3,$00,$c3,$00,$c3,$00,$c3,$00,$c3,$00,$3c,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $0c,$00,$3c,$00,$0c,$00,$0c,$00,$0c,$00,$0c,$00,$3f,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $3c,$00,$c3,$00,$03,$00,$0c,$00,$30,$00,$c0,$00,$ff,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $fc,$00,$03,$00,$03,$00,$3c,$00,$03,$00,$03,$00,$fc,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $03,$00,$0f,$00,$33,$00,$c3,$00,$ff,$00,$03,$00,$03,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $ff,$00,$c0,$00,$c0,$00,$fc,$00,$03,$00,$03,$00,$fc,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $3f,$00,$c0,$00,$c0,$00,$fc,$00,$c3,$00,$c3,$00,$3c,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $ff,$00,$03,$00,$0c,$00,$0c,$00,$30,$00,$30,$00,$30,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $3c,$00,$c3,$00,$c3,$00,$3c,$00,$c3,$00,$c3,$00,$3c,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $3c,$00,$c3,$00,$c3,$00,$3f,$00,$03,$00,$03,$00,$fc,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $c3,$00,$ff,$00,$ff,$00,$c3,$00,$c3,$00,$c3,$00,$c3,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $3f,$00,$c0,$00,$c0,$00,$3c,$00,$03,$00,$03,$00,$fc,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
