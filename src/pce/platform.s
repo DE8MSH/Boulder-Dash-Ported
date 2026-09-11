@@ -40,13 +40,10 @@ pce_raw_buttons: .res 1
 
     stz VCE_CTRL
 
-    ; Canonical PCE VDC setup uses the HuC6280's dedicated ST0/ST1/ST2 path.
-    ; Display/IRQs off and VRAM auto-increment fixed at +1 word.
     st0 #VDC_CR
     st1 #$00
     st2 #$00
 
-    ; 256x224 timing.
     st0 #VDC_HSR
     st1 #$02
     st2 #$02
@@ -67,7 +64,6 @@ pce_raw_buttons: .res 1
     st1 #$03
     st2 #$00
 
-    ; 32x32 BAT and zero scroll.
     st0 #VDC_MWR
     st1 #$00
     st2 #$00
@@ -80,15 +76,12 @@ pce_raw_buttons: .res 1
     st1 #$00
     st2 #$00
 
-    ; Upload the converted Boulder Dash C64 characters to VRAM word $0400.
-    ; TIA alternates destination writes between VDC data low/high ports.
     st0 #VDC_MAWR
     st1 #<PCE_PATTERN_WORD
     st2 #>PCE_PATTERN_WORD
     st0 #VDC_DATA
     tia bd_charset_pce, VDC_DATA_L, bd_charset_pce_bytes
 
-    ; Clear all 1024 BAT cells with Chr_00 using the proven ST1/ST2 path.
     st0 #VDC_MAWR
     st1 #$00
     st2 #$00
@@ -105,16 +98,13 @@ pce_raw_buttons: .res 1
     dey
     bne @bat_page
 
-    ; Render the shared 32x22 Cave 1 preview as ready-made 16-bit BAT words.
-    ; This deliberately uses TIA, matching the PCE path already confirmed in
-    ; Mednafen. Do not regress this to ordinary STA/STZ writes at $0002/$0003.
+    ; Shared Cave 1 RNG/draw generator emits ready-made HuC6270 BAT words.
     st0 #VDC_MAWR
     st1 #$00
     st2 #$00
     st0 #VDC_DATA
     tia pce_cave_bat, VDC_DATA_L, pce_cave_bat_bytes
 
-    ; BG palette 0: dark blue background and white set pixels.
     stz VCE_ADDR_L
     stz VCE_ADDR_H
     lda #$03
@@ -125,7 +115,6 @@ pce_raw_buttons: .res 1
     lda #$01
     sta VCE_DATA_H
 
-    ; Backdrop/border blue.
     stz VCE_ADDR_L
     lda #$01
     sta VCE_ADDR_H
@@ -133,7 +122,6 @@ pce_raw_buttons: .res 1
     sta VCE_DATA_L
     stz VCE_DATA_H
 
-    ; Background on + VBlank source; VRAM increment stays +1.
     st0 #VDC_CR
     st1 #$88
     st2 #$00
@@ -240,5 +228,5 @@ pce_raw_buttons: .res 1
 .endproc
 
 .segment "RODATA"
-.include "cave_preview_bat.inc"
+.include "../../build/generated/pce/cave1_bat.inc"
 .include "../../build/generated/pce/charset.inc"
