@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Convert Boulder Dash C64 1bpp character data to console 4bpp tiles.
 
-The source file contains labels Chr_XX followed by eight .byte rows.  Each C64
-character is therefore an 8x8 1bpp tile.  For the first porting stage we map
+The source file contains labels Chr_XX followed by eight .byte rows. Each C64
+character is therefore an 8x8 1bpp tile. For the first porting stage we map
 set pixels to palette index 1 and clear pixels to palette index 0.
 
 SNES 4bpp and HuC6270/PCE 4bpp both use 32 bytes per 8x8 tile in planar-pair
-layout: plane 0/1 rows first, then plane 2/3 rows.  With only palette indices
+layout: plane 0/1 rows first, then plane 2/3 rows. With only palette indices
 0/1, plane 0 contains the original C64 bitmap and the other three planes are 0.
 """
 
@@ -40,19 +40,23 @@ def read_characters(path: Path) -> list[tuple[int, list[int]]]:
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         label = LABEL_RE.match(line)
         if label:
-            finish()
+            if current_index is not None:
+                finish()
             current_index = int(label.group(1), 16)
 
         if current_index is not None:
             value = BYTE_RE.search(line)
             if value:
                 rows.append(int(value.group(1), 16))
-                if len(rows) > 8:
+                if len(rows) == 8:
+                    finish()
+                elif len(rows) > 8:
                     raise ValueError(
                         f"Chr_{current_index:02x} has more than 8 rows near line {line_no}"
                     )
 
-    finish()
+    if current_index is not None:
+        finish()
 
     if not chars:
         raise ValueError("no Chr_XX definitions found")
@@ -67,7 +71,6 @@ def read_characters(path: Path) -> list[tuple[int, list[int]]]:
 
 
 def encode_4bpp(rows: list[int]) -> bytes:
-    # Planes 0/1, then planes 2/3.  C64 bitmap becomes plane 0.
     out = bytearray()
     for row in rows:
         out.extend((row, 0x00))
@@ -105,8 +108,12 @@ def emit_ca65(path: Path, label: str, chars: list[tuple[int, list[int]]]) -> Non
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
-    parser.add_argument("--limit", type=int, default=64,
-                        help="maximum number of Chr_XX tiles to convert (default: 64)")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=64,
+        help="maximum number of Chr_XX tiles to convert (default: 64)",
+    )
     parser.add_argument("--snes-out", type=Path, required=True)
     parser.add_argument("--pce-out", type=Path, required=True)
     args = parser.parse_args()
@@ -117,9 +124,6 @@ def main() -> int:
         raise SystemExit("--limit must be greater than zero")
     chars = chars[: args.limit]
 
-    # The first-stage 1bpp -> palette-index-1 representation is identical on
-    # both targets, but separate generated files keep the build architecture
-    # ready for target-specific conversion later.
     emit_ca65(args.snes_out, "bd_charset_snes", chars)
     emit_ca65(args.pce_out, "bd_charset_pce", chars)
 
