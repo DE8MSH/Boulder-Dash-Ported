@@ -135,21 +135,23 @@ pad_result: .res 1
 
     jsr snes_upload_cave
 
-    ; Temporary Cave 1 palette. Exact C64 palette calibration is deferred.
+    ; Cave 1 C64 multicolor palette from its original header:
+    ; $08 orange, $0b dark gray, $09 brown.  The RGB values are converted to
+    ; SNES BGR555 while palette entry 0 remains black.
     stz CGADD
     stz CGDATA
     stz CGDATA
-    lda #$51
+    lda #$fa                    ; C64 orange  -> $15fa
     sta CGDATA
     lda #$15
     sta CGDATA
-    lda #$4a
+    lda #$8c                    ; C64 dark gray -> $318c
     sta CGDATA
-    lda #$29
+    lda #$31
     sta CGDATA
-    lda #$4d
+    lda #$6d                    ; C64 brown -> $0d6d
     sta CGDATA
-    lda #$01
+    lda #$0d
     sta CGDATA
 
     lda #$01
