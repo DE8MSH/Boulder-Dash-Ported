@@ -2,6 +2,7 @@
 
 .export game_build_cave2
 .export game_build_cave3
+.export game_build_cave4
 
 CAVE_COLS = 40
 
@@ -13,6 +14,7 @@ T_WALL_STEEL  = $07
 T_FIREFLY0    = $08
 T_BOULDER     = $10
 T_DIAMOND     = $14
+T_BUTTERFLY0  = $30
 T_ROCKFORD    = $38
 
 .segment "ZEROPAGE"
@@ -32,6 +34,7 @@ cave_y:         .res 1
 cave_len:       .res 1
 cave_tile:      .res 1
 cave_dir:       .res 1
+cave_rect_x:    .res 1
 
 .segment "RODATA"
 ; tile, x, y, length, direction (0=east, 1=south)
@@ -55,6 +58,9 @@ cave3_commands:
     .byte T_ROCKFORD,     3,  4, 1, 0
     .byte T_EXIT_CLOSED, 39, 20, 1, 0
     .byte $ff
+
+cave4_box_x:
+    .byte 8,16,24,32
 
 .segment "CODE"
 
@@ -182,6 +188,26 @@ cave3_commands:
     sta cave_cmd_ptr+1
     bra @next_command
 @done:
+    rts
+.endproc
+
+; Fill cave_len by cave_rows_left rectangle with cave_tile starting at cave_x/y.
+.proc cave_fill_rect
+    lda cave_x
+    sta cave_rect_x
+@row:
+    lda cave_rect_x
+    sta cave_x
+    lda cave_len
+    sta cave_cols_left
+@col:
+    jsr cave_set
+    inc cave_x
+    dec cave_cols_left
+    bne @col
+    inc cave_y
+    dec cave_rows_left
+    bne @row
     rts
 .endproc
 
@@ -335,5 +361,101 @@ cave3_commands:
     lda #>cave3_commands
     sta cave_cmd_ptr+1
     jsr cave_apply_commands
+    rts
+.endproc
+
+.proc game_build_cave4
+    ; Cave 4 difficulty 0 from the original C64 header:
+    ; seed $00, random Boulder probability $14, otherwise soil.
+    stz cave_seed
+    stz cave_start
+
+    lda #<(game_cave_state + 40)
+    sta cave_ptr
+    lda #>(game_cave_state + 40)
+    sta cave_ptr+1
+    lda #22
+    sta cave_rows_left
+@rnd_row:
+    lda #40
+    sta cave_cols_left
+@rnd_col:
+    jsr cave_rnd
+    cmp #$14
+    bcc @boulder
+    lda #T_SOIL
+    bra @store_random
+@boulder:
+    lda #T_BOULDER
+@store_random:
+    ldy #0
+    sta (cave_ptr),y
+    jsr cave_inc_ptr
+    dec cave_cols_left
+    bne @rnd_col
+    dec cave_rows_left
+    bne @rnd_row
+
+    jsr cave_make_frame
+
+    ; Birth at (1,3), closed exit at (38,22).
+    lda #T_ROCKFORD
+    sta cave_tile
+    lda #1
+    sta cave_x
+    lda #3
+    sta cave_y
+    jsr cave_set
+
+    lda #T_EXIT_CLOSED
+    sta cave_tile
+    lda #38
+    sta cave_x
+    lda #22
+    sta cave_y
+    jsr cave_set
+
+    ; Four original 4x4 soil chambers at x=8,16,24,32, y=10, each with a
+    ; 2x2 empty center and one butterfly at (x+2,11).
+    ldx #0
+@box:
+    lda cave4_box_x,x
+    pha
+    sta cave_x
+    lda #10
+    sta cave_y
+    lda #T_SOIL
+    sta cave_tile
+    lda #4
+    sta cave_len
+    sta cave_rows_left
+    jsr cave_fill_rect
+
+    pla
+    pha
+    inc a
+    sta cave_x
+    lda #11
+    sta cave_y
+    lda #T_EMPTY
+    sta cave_tile
+    lda #2
+    sta cave_len
+    sta cave_rows_left
+    jsr cave_fill_rect
+
+    pla
+    clc
+    adc #2
+    sta cave_x
+    lda #11
+    sta cave_y
+    lda #T_BUTTERFLY0
+    sta cave_tile
+    jsr cave_set
+
+    inx
+    cpx #4
+    bne @box
     rts
 .endproc
