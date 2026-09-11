@@ -18,22 +18,25 @@ content free to move into additional banks as the C64 feature set grows.
 
 ## PC Engine
 
-- HuCard mapping is handled in 8 KiB pages through the HuC6280 MPR registers.
-- The fixed boot/vector bank is mapped at CPU `$E000-$FFFF` (MPR7).
-- Vectors stay at `$FFF6-$FFFF` in that fixed final bank.
-- Future banked game/data pages should use a dedicated 8 KiB window (normally
-  MPR6 at `$C000-$DFFF`) and switch it explicitly with `TAM`/`TMA` helpers.
-- Interrupt/startup code and any routine required while changing MPRs stays in
-  the fixed bank.
-- Shared RAM state stays at `$2200+` and must never depend on the currently
-  mapped HuCard bank.
+- HuCard ROM is split into physical 8 KiB pages selected by the HuC6280 MPRs.
+- On reset the CPU forces `MPR7=$00`. Therefore physical HuCard bank `$00`
+  must contain startup and vectors and appears at logical `$E000-$FFFF`.
+- Reset/IRQ vectors remain at physical ROM offsets `$1FF6-$1FFF`, not at the
+  end of an expanded multi-bank image.
+- The current 16 KiB layout maps physical bank `$01` permanently through
+  `MPR6` at logical `$C000-$DFFF`.
+- The converted C64 charset lives in bank `$01`; startup, shared game code,
+  platform code and vectors remain in bank `$00` for now.
+- Future banks can be switched through another dedicated MPR window with
+  `TAM`/`TMA`; bank-switching helpers and interrupt/startup code must remain in
+  fixed bank `$00`.
+- Shared RAM state stays at `$2200+` and never depends on the mapped ROM bank.
 
 ## Build rules
 
 - SNES images grow in whole 32 KiB banks.
 - PCE images grow in whole 8 KiB banks.
-- `scripts/check-roms.py` accepts those native bank multiples and still checks
-  the fixed reset-vector locations.
+- `scripts/check-roms.py` validates the SNES bank-0 vectors and the PCE
+  physical bank-0 reset vector even when later banks are present.
 - Do not enlarge a ROM merely to hide a linker overflow. Add a banked segment
-  deliberately and keep the fixed bank small enough for startup, vectors and
-  bank-switching support.
+  deliberately and place a coherent asset/code group there.
