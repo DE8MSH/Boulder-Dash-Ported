@@ -33,7 +33,7 @@ assets: check
 
 snes-obj: assets
 	@mkdir -p build/snes
-	$(PYTHON) scripts/prepare-timed-source.py game src/common/game.s src/common/.game-snes-build.s --step 4 --threshold 11
+	$(PYTHON) scripts/prepare-timed-source.py game src/common/game.s src/common/.game-snes-build.s --step 4 --threshold 11 --burst 4
 	cd src/common && $(CA65) --cpu 65816 .game-snes-build.s -o ../../build/snes/game.o
 	@rm -f src/common/.game-snes-build.s
 	cd src/common && $(CA65) --cpu 65816 game_autoplay.s -o ../../build/snes/game_autoplay.o
