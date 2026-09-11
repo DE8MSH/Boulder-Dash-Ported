@@ -88,7 +88,7 @@ pad_result: .res 1
     dex
     bne @clear_map
 
-    ; game_cave_view is now the exact 32x28 C64 character-cell layout for a
+    ; game_cave_view is the exact 32x28 C64 character-cell layout for a
     ; 16x14 logical-object viewport. The generator has already applied
     ; TabCaveTileCharNo and the original 2x2 layout:
     ;   base, base+1 / base+$10, base+$11.
@@ -107,14 +107,28 @@ pad_result: .res 1
     sep #$10
     .i8
 
+    ; Cave 1 C64 colors are $08/$0b/$09 (orange/dark gray/brown).
+    ; Converted multicolor pixels use palette roles 0..3:
+    ;   0 background black, 1 orange, 2 dark gray, 3 brown.
+    ; RGB values are close SNES approximations, not yet a calibrated C64 LUT.
     stz CGADD
-    lda #$00
+    ; color 0: black, BGR555 $0000
+    stz CGDATA
+    stz CGDATA
+    ; color 1: orange, BGR555 $1551
+    lda #$51
     sta CGDATA
-    lda #$30
+    lda #$15
     sta CGDATA
-    lda #$ff
+    ; color 2: dark gray, BGR555 $294a
+    lda #$4a
     sta CGDATA
-    lda #$7f
+    lda #$29
+    sta CGDATA
+    ; color 3: brown, BGR555 $014d
+    lda #$4d
+    sta CGDATA
+    lda #$01
     sta CGDATA
 
     lda #$01
