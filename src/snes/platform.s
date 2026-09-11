@@ -1,14 +1,25 @@
 .setcpu "65816"
+.a8
+.i8
 
 .include "../common/platform.inc"
 
-; SNES CPU / PPU registers used by the first porting stage.
+; SNES CPU / PPU registers used by the port bootstrap.
 INIDISP  = $2100
 BGMODE   = $2105
-TM       = $212C
-TS       = $212D
+BG1SC    = $2107
+BG12NBA  = $210B
+BG1HOFS  = $210D
+BG1VOFS  = $210E
+VMAIN    = $2115
+VMADDL   = $2116
+VMADDH   = $2117
+VMDATAL  = $2118
+VMDATAH  = $2119
 CGADD    = $2121
 CGDATA   = $2122
+TM       = $212C
+TS       = $212D
 SETINI   = $2133
 NMITIMEN = $4200
 HVBJOY   = $4212
@@ -26,46 +37,109 @@ pad_result: .res 1
 
     ; Keep the porting core deliberately 6502-like: 8-bit A/X/Y and DP=$0000.
     rep #$20
+    .a16
     lda #$0000
     tcd
-    sep #$30
+    sep #$20
+    .a8
 
-    ; Force blank while touching PPU state.
-    lda #$80
+    ; Force blank while touching PPU/VRAM state.
+    lda #$8f
     sta INIDISP
 
-    ; Minimal deterministic PPU state. No BG/OBJ layers yet; color 0 is the
-    ; visible backdrop. Mode 1 is selected now because Boulder Dash will use
-    ; tile backgrounds in the next milestone.
+    ; Mode 1, 8x8 BG tiles. BG1 tiles start at VRAM word $0000 and the
+    ; 32x32 BG1 tilemap starts at VRAM word $1000 (8 KiB byte offset).
     lda #$01
     sta BGMODE
-    stz TM
+    lda #$10
+    sta BG1SC
+    stz BG12NBA
     stz TS
     stz SETINI
 
-    ; CGRAM color 0: dark blue (BGR555 = $3000).
+    ; Zero BG1 scroll. Each scroll register must be written twice.
+    stz BG1HOFS
+    stz BG1HOFS
+    stz BG1VOFS
+    stz BG1VOFS
+
+    ; Sequential VRAM word access, increment after writing VMDATAH.
+    lda #$80
+    sta VMAIN
+    stz VMADDL
+    stz VMADDH
+
+    ; Upload the generated 4bpp Boulder Dash character set to VRAM $0000.
+    rep #$10
+    .i16
+    ldx #$0000
+@upload_tiles:
+    lda bd_charset_snes,x
+    sta VMDATAL
+    inx
+    lda bd_charset_snes,x
+    sta VMDATAH
+    inx
+    cpx #bd_charset_snes_bytes
+    bne @upload_tiles
+
+    ; Clear all 32x32 BG1 tilemap entries at VRAM word $1000.
+    stz VMADDL
+    lda #$10
+    sta VMADDH
+    ldx #1024
+@clear_map:
+    stz VMDATAL
+    stz VMDATAH
+    dex
+    bne @clear_map
+
+    ; Put the converted characters 0..63 in the first two rows. A tilemap
+    ; entry is a 16-bit word; palette 0, normal priority/flip, tile index X.
+    stz VMADDL
+    lda #$10
+    sta VMADDH
+    ldx #$0000
+@write_test_map:
+    txa
+    sta VMDATAL
+    stz VMDATAH
+    inx
+    cpx #bd_charset_snes_count
+    bne @write_test_map
+
+    sep #$10
+    .i8
+
+    ; Palette 0: dark-blue backdrop and white foreground pixels.
     stz CGADD
-    lda #$00
+    lda #$00            ; color 0 = BGR555 $3000
     sta CGDATA
     lda #$30
     sta CGDATA
+    lda #$ff            ; color 1 = BGR555 $7fff
+    sta CGDATA
+    lda #$7f
+    sta CGDATA
+
+    ; Enable BG1 on the main screen.
+    lda #$01
+    sta TM
 
     ; Auto joypad read on, NMI/IRQ still off for this polling bootstrap.
     lda #%00000001
     sta NMITIMEN
 
-    ; Leave forced blank only during VBlank to avoid display glitches.
+    ; Leave forced blank only during VBlank.
 @wait_vblank:
     lda HVBJOY
     bpl @wait_vblank
-    lda #$0f            ; display on, full brightness
+    lda #$0f
     sta INIDISP
     rts
 .endproc
 
 .proc platform_wait_frame
-    ; Poll one complete frame edge. This intentionally avoids requiring a
-    ; vector/NMI setup while the port is still in bootstrap form.
 @leave_vblank:
     lda HVBJOY
     bmi @leave_vblank
@@ -74,14 +148,12 @@ pad_result: .res 1
     bpl @enter_vblank
 @wait_autojoy:
     lda HVBJOY
-    and #$01            ; auto-joypad read busy
+    and #$01
     bne @wait_autojoy
     rts
 .endproc
 
 .proc platform_read_pad
-    ; After auto-read, JOY1H contains the useful SNES pad bits:
-    ; bit 7 B, 6 Y, 5 Select, 4 Start, 3 Up, 2 Down, 1 Left, 0 Right.
     stz pad_result
 
     lda JOY1H
@@ -113,7 +185,7 @@ pad_result: .res 1
     sta pad_result
 :
     lda JOY1H
-    and #%10000000      ; B = Boulder Dash fire/action
+    and #%10000000
     beq :+
     lda pad_result
     ora #PAD_FIRE
@@ -138,8 +210,6 @@ pad_result: .res 1
 .endproc
 
 .proc platform_video_begin
-    ; Buffered VRAM/OAM/CGRAM uploads are added with converted C64 character
-    ; data. The visible backdrop already proves PPU initialization works.
     rts
 .endproc
 
@@ -149,6 +219,8 @@ pad_result: .res 1
 
 .proc platform_audio_tick
     ; Deferred milestone: SPC700/DSP music and SFX backend.
-    ; Keep the ABI entry point so audio cannot disappear from the plan.
     rts
 .endproc
+
+.segment "RODATA"
+.include "../../build/generated/snes/charset.inc"
