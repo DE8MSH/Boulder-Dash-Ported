@@ -38,7 +38,7 @@
     .byte "BOULDER DASH PORT    " ; 21 bytes
     .byte $20                   ; LoROM, slow ROM
     .byte $00                   ; ROM only
-    .byte $05                   ; 32 KiB ROM
+    .byte $06                   ; 64 KiB ROM (two 32 KiB LoROM banks)
     .byte $00                   ; no SRAM
     .byte $02                   ; Europe/PAL region code
     .byte $00                   ; licensee
@@ -47,22 +47,20 @@
     .word $0000                 ; checksum (placeholder)
 
 .segment "VECTORS"
-    ; Native mode vectors ($FFE0-$FFEF)
     .word $0000
     .word $0000
-    .word default_irq           ; COP
-    .word default_irq           ; BRK
-    .word default_irq           ; ABORT
-    .word default_irq           ; NMI
-    .word $0000                 ; reserved
-    .word default_irq           ; IRQ
+    .word default_irq
+    .word default_irq
+    .word default_irq
+    .word default_irq
+    .word $0000
+    .word default_irq
 
-    ; Emulation mode vectors ($FFF0-$FFFF)
     .word $0000
     .word $0000
-    .word default_irq           ; COP
-    .word $0000                 ; reserved
-    .word default_irq           ; ABORT
-    .word default_irq           ; NMI
-    .word reset                 ; RESET
-    .word default_irq           ; IRQ/BRK
+    .word default_irq
+    .word $0000
+    .word default_irq
+    .word default_irq
+    .word reset
+    .word default_irq
